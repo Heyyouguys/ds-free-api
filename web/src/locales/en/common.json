@@ -3,8 +3,11 @@
     "dashboard": "Dashboard",
     "models": "Models",
     "config": "Config",
+    "settings": "Settings",
     "logs": "Logs",
-    "logout": "Logout"
+    "logout": "Logout",
+    "collapseSidebar": "Collapse sidebar",
+    "expandSidebar": "Expand sidebar"
   },
   "login": {
     "title": "DS Free API",
@@ -28,6 +31,9 @@
   },
   "dashboard": {
     "title": "Dashboard",
+    "subtitle": "System health, token quota, inference performance, and DeepSeek account pool",
+    "gatewayActive": "DeepSeek Gateway Active",
+    "tokenAccumulation": "Accumulated inference token usage",
     "stats": {
       "totalRequests": "Total Requests",
       "successRate": "Success Rate",
@@ -51,11 +57,14 @@
       "idle": "Idle",
       "busy": "Busy",
       "error": "Error",
-      "invalid": "Invalid"
-    }
+      "invalid": "Invalid",
+      "accounts": "Accounts"
+    },
+    "refresh": "Refresh"
   },
   "config": {
     "title": "Configuration",
+    "subtitle": "Configure DeepSeek Web accounts, client API keys, and model gateway definitions",
     "saveSuccess": "Saved successfully, config hot-reloaded",
     "saveFailed": "Save failed",
     "loadFailed": "Failed to load config",
@@ -64,6 +73,8 @@
     "saving": "Saving...",
     "cancel": "Cancel",
     "save": "Save Configuration",
+    "unsavedChanges": "Unsaved configuration changes",
+    "allSynced": "All configurations synchronized",
     "sections": {
       "accounts": "Accounts",
       "apiKeys": "API Keys",
@@ -79,13 +90,25 @@
       "mobile": "Mobile",
       "areaCode": "Area Code",
       "password": "Password",
-      "add": "Add Account"
+      "add": "Add Account",
+      "countLabel": "{{count}} Accounts",
+      "accountNumber": "Account #{{num}}",
+      "description": "List of DeepSeek Web accounts used for reverse proxy and token rotation",
+      "empty": "No DeepSeek accounts added yet. Click the button below to add an account.",
+      "deleteLabel": "Delete",
+      "deleteTitle": "Delete Account"
     },
     "apiKeys": {
       "description": "Description",
       "placeholder": "Description",
       "add": "Add API Key",
-      "copyTitle": "Copy"
+      "copyTitle": "Copy",
+      "countLabel": "{{count}} Keys",
+      "cardDescription": "Bearer Token authorization keys for clients accessing OpenAI or Anthropic endpoints",
+      "empty": "No API Keys yet. Add an API Key to start using inference from client applications.",
+      "copyKeyTitle": "Copy Key",
+      "deleteKeyTitle": "Delete Key",
+      "toggleVisibility": "Show / Hide"
     },
     "admin": {
       "passwordSet": "Password set",
@@ -114,20 +137,42 @@
       "maxOutput": "Max Output",
       "inputCharLimit": "Input Chars",
       "alias": "Alias (optional)",
-      "add": "Add Model Type"
+      "add": "Add Model Type",
+      "description": "List of DeepSeek models and token input/output quota limits per model",
+      "deleteModelTitle": "Delete Model"
     },
     "toolCallTags": {
       "extraStarts": "Extra Start Tags",
       "extraEnds": "Extra End Tags",
-      "placeholder": "New tag, press Enter to add"
+      "placeholder": "New tag, press Enter to add",
+      "description": "Start and end tag markers for function call / tool calling blocks during streaming"
     },
     "proxy": {
       "url": "Proxy URL (leave empty to disable)",
       "placeholder": "http://127.0.0.1:7890"
     }
   },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Manage admin security credentials, server networking, proxy, and internal engine parameters",
+    "securityTitle": "Admin Security & Credentials",
+    "securityDescription": "Update login password to secure access to the admin dashboard",
+    "confirmPassword": "Confirm New Password",
+    "confirmPasswordPlaceholder": "Re-enter new password",
+    "passwordMismatch": "New password and confirmation password do not match.",
+    "passwordMinLength": "New password must be at least 6 characters.",
+    "serverDescription": "IP listen address, port binding, and Cross-Origin Resource Sharing (CORS) origins",
+    "proxyDescription": "Configure outbound proxy (HTTP/SOCKS5) if the server requires firewall or WAF bypass",
+    "engineTitle": "DeepSeek Engine Parameters",
+    "engineDescription": "Official API endpoint, PoW WASM solver URL, and client headers",
+    "unsavedChanges": "Unsaved settings changes",
+    "allSynced": "All settings synchronized"
+  },
   "logs": {
     "title": "Logs",
+    "subtitle": "Monitor API request activity and system logs in real time",
+    "all": "All",
+    "searchPlaceholder": "Search model / key...",
     "tabs": {
       "request": "Request Logs",
       "runtime": "Runtime Logs"
@@ -144,30 +189,55 @@
       "success": "Success",
       "failure": "Failure",
       "loading": "Loading...",
-      "empty": "No request logs"
+      "empty": "No request logs",
+      "emptyDesc": "API requests from clients will automatically be logged and displayed here."
     },
     "runtimeLogs": {
-      "description": "Runtime logs (total {total}, auto-refresh every 3s)",
+      "description": "Runtime logs (total {{total}}, auto-refresh every 3s)",
       "time": "Time",
       "level": "Level",
       "module": "Module",
       "message": "Message",
       "loading": "Loading...",
       "empty": "No runtime logs",
-      "pageInfo": "Page {current} / {total}",
+      "emptyDesc": "System runtime logs will be recorded and displayed here.",
+      "pageInfo": "Page {{current}} / {{total}}",
       "prev": "Prev",
       "next": "Next"
     }
   },
   "models": {
-    "title": "Models",
-    "type": "Type",
-    "loading": "Loading...",
-    "empty": "No models found"
+    "title": "Model Catalog",
+    "description": "All available models compatible with OpenAI and Anthropic inference endpoints",
+    "type": "Model Type",
+    "contextWindow": "Context Window",
+    "maxOutput": "Max Output",
+    "ownedBy": "Provider",
+    "endpoints": "Supported Endpoints",
+    "features": "Capabilities",
+    "copyId": "Copy Model ID",
+    "copied": "Copied!",
+    "loading": "Loading models...",
+    "empty": "No models available",
+    "readyStatus": "Ready",
+    "quickStart": "Quick Start Integration"
+  },
+  "codeSnippet": {
+    "copyTitle": "Copy Code",
+    "helloMessage": "Hello, DeepSeek!",
+    "curlComment": "# 1. Send Chat Completion Request (cURL)",
+    "pythonComment": "# 2. Integration Using OpenAI Python SDK",
+    "nodeComment": "// 3. Integration Using OpenAI Node.js SDK"
+  },
+  "profile": {
+    "role": "Administrator",
+    "language": "Language",
+    "theme": "Theme"
   },
   "language": {
     "zh": "中文",
-    "en": "English"
+    "en": "English",
+    "id": "Bahasa Indonesia"
   },
   "theme": {
     "system": "System",
@@ -184,6 +254,7 @@
     "copied": "Copied",
     "confirm": "Confirm",
     "success": "Success",
-    "error": "Error"
+    "error": "Error",
+    "refresh": "Refresh"
   }
 }

@@ -1,0 +1,260 @@
+{
+  "nav": {
+    "dashboard": "Dasbor",
+    "models": "Model",
+    "config": "Konfigurasi",
+    "settings": "Pengaturan",
+    "logs": "Log",
+    "logout": "Keluar",
+    "collapseSidebar": "Ciutkan bilah samping",
+    "expandSidebar": "Perluas bilah samping"
+  },
+  "login": {
+    "title": "DS Free API",
+    "setupDescription": "Pertama kali digunakan, silakan atur password admin",
+    "loginDescription": "Masukkan password untuk mengakses panel admin",
+    "passwordLabel": "Password",
+    "confirmPasswordLabel": "Konfirmasi Password",
+    "setPasswordLabel": "Atur Password",
+    "passwordPlaceholder": "Password admin",
+    "setPasswordPlaceholder": "Minimal 6 karakter",
+    "confirmPasswordPlaceholder": "Masukkan ulang password",
+    "setupButton": "Atur Password",
+    "loginButton": "Masuk",
+    "errorPasswordLength": "Panjang password minimal 6 karakter",
+    "errorPasswordMismatch": "Kedua password tidak cocok",
+    "errorSetupFailed": "Pengaturan gagal",
+    "errorLoginFailed": "Login gagal",
+    "checking": "Memeriksa...",
+    "settingUp": "Mengatur...",
+    "verifying": "Memverifikasi..."
+  },
+  "dashboard": {
+    "title": "Dasbor",
+    "subtitle": "Status sistem, kuota token, performa inferensi, dan pool akun DeepSeek",
+    "gatewayActive": "DeepSeek Gateway Aktif",
+    "tokenAccumulation": "Akumulasi penggunaan token inferensi",
+    "stats": {
+      "totalRequests": "Total Permintaan",
+      "successRate": "Tingkat Keberhasilan",
+      "avgLatency": "Rata-rata Latensi",
+      "uptime": "Waktu Aktif",
+      "totalTokens": "Total Token",
+      "promptTokens": "Token Input",
+      "completionTokens": "Token Output",
+      "models": "Statistik Model",
+      "model": "Model",
+      "requests": "Permintaan",
+      "prompt": "Token Input",
+      "completion": "Token Output",
+      "days": "h",
+      "hours": "j",
+      "minutes": "m"
+    },
+    "accountPool": {
+      "title": "Kumpulan Akun",
+      "total": "Total",
+      "idle": "Siap",
+      "busy": "Sibuk",
+      "error": "Error",
+      "invalid": "Tidak Valid",
+      "accounts": "Akun"
+    },
+    "refresh": "Segarkan"
+  },
+  "config": {
+    "title": "Konfigurasi",
+    "subtitle": "Konfigurasi akun DeepSeek Web, API Keys klien, dan definisi model gateway",
+    "saveSuccess": "Berhasil disimpan, konfigurasi dimuat ulang otomatis",
+    "saveFailed": "Gagal menyimpan",
+    "loadFailed": "Gagal memuat konfigurasi",
+    "loading": "Memuat...",
+    "cancelConfirm": "Batalkan semua perubahan yang belum disimpan?",
+    "saving": "Menyimpan...",
+    "cancel": "Batal",
+    "save": "Simpan Konfigurasi",
+    "unsavedChanges": "Terdapat perubahan konfigurasi yang belum disimpan",
+    "allSynced": "Semua konfigurasi tersinkronisasi",
+    "sections": {
+      "accounts": "Akun",
+      "apiKeys": "API Key",
+      "admin": "Admin",
+      "server": "Server",
+      "deepseek": "DeepSeek",
+      "models": "Tipe Model",
+      "toolCallTags": "Tag Pemanggilan Alat (Tool Call)",
+      "proxy": "Proxy"
+    },
+    "accounts": {
+      "email": "Email",
+      "mobile": "Ponsel",
+      "areaCode": "Kode Area",
+      "password": "Password",
+      "add": "Tambah Akun",
+      "countLabel": "{{count}} Akun",
+      "accountNumber": "Akun #{{num}}",
+      "description": "Daftar akun DeepSeek Web yang digunakan untuk reverse proxy dan rotasi token",
+      "empty": "Belum ada akun DeepSeek yang ditambahkan. Klik tombol di bawah untuk menambah akun.",
+      "deleteLabel": "Hapus",
+      "deleteTitle": "Hapus Akun"
+    },
+    "apiKeys": {
+      "description": "Deskripsi",
+      "placeholder": "Deskripsi",
+      "add": "Tambah API Key",
+      "copyTitle": "Salin",
+      "countLabel": "{{count}} Keys",
+      "cardDescription": "Kunci otorisasi Bearer Token untuk klien yang mengakses endpoint OpenAI atau Anthropic",
+      "empty": "Belum ada API Key. Tambahkan API Key untuk mulai menggunakan inferensi dari aplikasi klien.",
+      "copyKeyTitle": "Salin Key",
+      "deleteKeyTitle": "Hapus Key",
+      "toggleVisibility": "Tampilkan / Sembunyikan"
+    },
+    "admin": {
+      "passwordSet": "Password sudah diatur",
+      "passwordNotSet": "Password belum diatur",
+      "oldPassword": "Password Lama",
+      "newPassword": "Password Baru",
+      "oldPasswordPlaceholder": "Masukkan password lama untuk mengubah",
+      "newPasswordPlaceholder": "Minimal 6 karakter"
+    },
+    "server": {
+      "host": "Alamat Listen",
+      "port": "Port",
+      "corsOrigins": "Asal CORS (dipisahkan koma)"
+    },
+    "deepseek": {
+      "apiBase": "API Base",
+      "wasmUrl": "WASM URL",
+      "userAgent": "User-Agent",
+      "clientVersion": "Client Version",
+      "clientPlatform": "Client Platform",
+      "clientLocale": "Client Locale"
+    },
+    "modelsSection": {
+      "typeName": "Nama Tipe",
+      "maxInput": "Maks Input",
+      "maxOutput": "Maks Output",
+      "inputCharLimit": "Batas Karakter Input",
+      "alias": "Alias (opsional)",
+      "add": "Tambah Tipe Model",
+      "description": "Daftar model DeepSeek dan batas kuota token input/output per model",
+      "deleteModelTitle": "Hapus Model"
+    },
+    "toolCallTags": {
+      "extraStarts": "Tag Awal Tambahan",
+      "extraEnds": "Tag Akhir Tambahan",
+      "placeholder": "Tag baru, tekan Enter untuk menambah",
+      "description": "Tag penanda awal dan akhir blok function call / tool calling saat streaming"
+    },
+    "proxy": {
+      "url": "URL Proxy (kosongkan untuk menonaktifkan)",
+      "placeholder": "http://127.0.0.1:7890"
+    }
+  },
+  "settings": {
+    "title": "Pengaturan",
+    "subtitle": "Kelola keamanan akun admin, jaringan server, proxy, dan parameter internal sistem",
+    "securityTitle": "Keamanan & Kredensial Admin",
+    "securityDescription": "Ubah password login untuk mengamankan akses ke Web Dashboard",
+    "confirmPassword": "Konfirmasi Password Baru",
+    "confirmPasswordPlaceholder": "Ulangi password baru",
+    "passwordMismatch": "Password baru dan konfirmasi password tidak cocok.",
+    "passwordMinLength": "Password baru harus minimal 6 karakter.",
+    "serverDescription": "Alamat IP, port binding, dan izin Cross-Origin Resource Sharing (CORS)",
+    "proxyDescription": "Gunakan outbound proxy (HTTP/SOCKS5) jika server memerlukan bypass firewall atau WAF",
+    "engineTitle": "Parameter Mesin DeepSeek",
+    "engineDescription": "Konfigurasi endpoint API resmi, URL WASM kalkulasi PoW, dan identitas User-Agent",
+    "unsavedChanges": "Terdapat perubahan pengaturan yang belum disimpan",
+    "allSynced": "Semua pengaturan tersinkronisasi"
+  },
+  "logs": {
+    "title": "Log",
+    "subtitle": "Pantau aktivitas permintaan API dan log sistem secara real-time",
+    "all": "Semua",
+    "searchPlaceholder": "Cari model / key...",
+    "tabs": {
+      "request": "Log Permintaan",
+      "runtime": "Log Runtime"
+    },
+    "requestLogs": {
+      "description": "100 permintaan terakhir (diperbarui otomatis tiap 5 dtk)",
+      "time": "Waktu",
+      "model": "Model",
+      "apiKey": "API Key",
+      "promptTokens": "Input",
+      "completionTokens": "Output",
+      "latency": "Latensi",
+      "status": "Status",
+      "success": "Berhasil",
+      "failure": "Gagal",
+      "loading": "Memuat...",
+      "empty": "Belum ada log permintaan",
+      "emptyDesc": "Permintaan API dari klien akan otomatis tercatat dan muncul di sini."
+    },
+    "runtimeLogs": {
+      "description": "Log runtime (total {{total}}, diperbarui otomatis tiap 3 dtk)",
+      "time": "Waktu",
+      "level": "Level",
+      "module": "Modul",
+      "message": "Pesan",
+      "loading": "Memuat...",
+      "empty": "Belum ada log runtime",
+      "emptyDesc": "Log runtime dari sistem akan tercatat dan ditampilkan di sini.",
+      "pageInfo": "Hal {{current}} / {{total}}",
+      "prev": "Sebelumnya",
+      "next": "Berikutnya"
+    }
+  },
+  "models": {
+    "title": "Katalog Model",
+    "description": "Daftar model yang aktif dan siap digunakan untuk API OpenAI & Anthropic",
+    "type": "Tipe Model",
+    "contextWindow": "Context Window",
+    "maxOutput": "Maks Output",
+    "ownedBy": "Penyedia",
+    "endpoints": "Endpoint Kompatibel",
+    "features": "Fitur & Kapabilitas",
+    "copyId": "Salin ID Model",
+    "copied": "Tersalin!",
+    "loading": "Memuat katalog model...",
+    "empty": "Belum ada model yang tersedia",
+    "readyStatus": "Aktif",
+    "quickStart": "Panduan Integrasi Cepat"
+  },
+  "codeSnippet": {
+    "copyTitle": "Salin Kode",
+    "helloMessage": "Halo, DeepSeek!",
+    "curlComment": "# 1. Kirim Permintaan Chat Completion (cURL)",
+    "pythonComment": "# 2. Integrasi Menggunakan OpenAI Python SDK",
+    "nodeComment": "// 3. Integrasi Menggunakan OpenAI Node.js SDK"
+  },
+  "profile": {
+    "role": "Administrator",
+    "language": "Bahasa",
+    "theme": "Tema"
+  },
+  "language": {
+    "zh": "中文",
+    "en": "English",
+    "id": "Bahasa Indonesia"
+  },
+  "theme": {
+    "system": "Ikuti Sistem",
+    "light": "Terang",
+    "dark": "Gelap",
+    "toggle": "Klik untuk beralih tema"
+  },
+  "common": {
+    "loading": "Memuat...",
+    "save": "Simpan",
+    "cancel": "Batal",
+    "delete": "Hapus",
+    "copy": "Salin",
+    "copied": "Tersalin",
+    "confirm": "Konfirmasi",
+    "success": "Berhasil",
+    "error": "Error",
+    "refresh": "Segarkan"
+  }
+}

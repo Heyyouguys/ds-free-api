@@ -3,8 +3,11 @@
     "dashboard": "概览",
     "models": "模型",
     "config": "配置",
+    "settings": "设置",
     "logs": "日志",
-    "logout": "退出"
+    "logout": "退出",
+    "collapseSidebar": "折叠侧边栏",
+    "expandSidebar": "展开侧边栏"
   },
   "login": {
     "title": "DS Free API",
@@ -28,6 +31,9 @@
   },
   "dashboard": {
     "title": "概览",
+    "subtitle": "系统运行状态、Token 配额、推理性能及 DeepSeek 账号池",
+    "gatewayActive": "DeepSeek 网关运行中",
+    "tokenAccumulation": "累计推理 Token 使用量",
     "stats": {
       "totalRequests": "总请求",
       "successRate": "成功率",
@@ -51,11 +57,14 @@
       "idle": "空闲",
       "busy": "忙碌",
       "error": "异常",
-      "invalid": "失效"
-    }
+      "invalid": "失效",
+      "accounts": "个账号"
+    },
+    "refresh": "刷新"
   },
   "config": {
     "title": "配置编辑",
+    "subtitle": "配置 DeepSeek Web 账号、客户端 API Key 及模型网关定义",
     "saveSuccess": "保存成功，配置已热重载",
     "saveFailed": "保存失败",
     "loadFailed": "加载配置失败",
@@ -64,6 +73,8 @@
     "saving": "保存中...",
     "cancel": "取消",
     "save": "保存配置",
+    "unsavedChanges": "有未保存的配置更改",
+    "allSynced": "所有配置已同步",
     "sections": {
       "accounts": "账号",
       "apiKeys": "API Keys",
@@ -79,13 +90,25 @@
       "mobile": "手机",
       "areaCode": "区号",
       "password": "密码",
-      "add": "添加账号"
+      "add": "添加账号",
+      "countLabel": "{{count}} 个账号",
+      "accountNumber": "账号 #{{num}}",
+      "description": "用于反向代理和 Token 轮转的 DeepSeek Web 账号列表",
+      "empty": "暂无 DeepSeek 账号，点击下方按钮添加账号。",
+      "deleteLabel": "删除",
+      "deleteTitle": "删除账号"
     },
     "apiKeys": {
       "description": "描述",
       "placeholder": "描述",
       "add": "添加 API Key",
-      "copyTitle": "复制"
+      "copyTitle": "复制",
+      "countLabel": "{{count}} 个 Key",
+      "cardDescription": "供客户端访问 OpenAI 或 Anthropic 接口的 Bearer Token 授权密钥",
+      "empty": "暂无 API Key，添加 API Key 以开始使用推理接口。",
+      "copyKeyTitle": "复制 Key",
+      "deleteKeyTitle": "删除 Key",
+      "toggleVisibility": "显示 / 隐藏"
     },
     "admin": {
       "passwordSet": "密码已设置",
@@ -114,20 +137,42 @@
       "maxOutput": "最大输出",
       "inputCharLimit": "输入字符数",
       "alias": "别名（可选）",
-      "add": "添加模型类型"
+      "add": "添加模型类型",
+      "description": "DeepSeek 模型列表及每个模型的 Token 输入/输出配额限制",
+      "deleteModelTitle": "删除模型"
     },
     "toolCallTags": {
       "extraStarts": "额外开始标签",
       "extraEnds": "额外结束标签",
-      "placeholder": "新标签，回车添加"
+      "placeholder": "新标签，回车添加",
+      "description": "流式输出中 function call / tool calling 块的起止标签标记"
     },
     "proxy": {
       "url": "代理 URL（留空禁用）",
       "placeholder": "http://127.0.0.1:7890"
     }
   },
+  "settings": {
+    "title": "设置",
+    "subtitle": "管理管理员凭据、网络绑定、代理及内部引擎参数",
+    "securityTitle": "管理员安全与凭据",
+    "securityDescription": "修改登录密码以保护管理面板访问安全",
+    "confirmPassword": "确认新密码",
+    "confirmPasswordPlaceholder": "再次输入新密码",
+    "passwordMismatch": "新密码与确认密码不一致。",
+    "passwordMinLength": "新密码长度至少需要 6 个字符。",
+    "serverDescription": "IP 监听地址、端口绑定及跨域资源共享 (CORS) 来源",
+    "proxyDescription": "如果服务器需要绕过防火墙或 WAF，请配置出站代理 (HTTP/SOCKS5)",
+    "engineTitle": "DeepSeek 引擎参数",
+    "engineDescription": "官方 API 端点、PoW WASM 求解器 URL 以及客户端标头",
+    "unsavedChanges": "有未保存的设置更改",
+    "allSynced": "所有设置已同步"
+  },
   "logs": {
     "title": "日志",
+    "subtitle": "实时监控 API 请求活动和系统运行日志",
+    "all": "全部",
+    "searchPlaceholder": "搜索模型 / 密钥...",
     "tabs": {
       "request": "请求日志",
       "runtime": "运行日志"
@@ -144,30 +189,55 @@
       "success": "成功",
       "failure": "失败",
       "loading": "加载中...",
-      "empty": "暂无请求日志"
+      "empty": "暂无请求日志",
+      "emptyDesc": "来自客户端的 API 请求将自动记录并在此显示。"
     },
     "runtimeLogs": {
-      "description": "运行日志（共 {total} 条，每 3 秒自动刷新）",
+      "description": "运行日志（共 {{total}} 条，每 3 秒自动刷新）",
       "time": "时间",
       "level": "级别",
       "module": "模块",
       "message": "消息",
       "loading": "加载中...",
       "empty": "暂无运行日志",
-      "pageInfo": "第 {current} / {total} 页",
+      "emptyDesc": "系统运行时日志将在此记录并显示。",
+      "pageInfo": "第 {{current}} / {{total}} 页",
       "prev": "上一页",
       "next": "下一页"
     }
   },
   "models": {
-    "title": "模型列表",
-    "type": "类型",
-    "loading": "加载中...",
-    "empty": "暂无模型"
+    "title": "模型目录",
+    "description": "所有已加载且可供 OpenAI 与 Anthropic 兼容接口调用的模型列表",
+    "type": "模型类型",
+    "contextWindow": "上下文限制",
+    "maxOutput": "最大输出",
+    "ownedBy": "服务提供方",
+    "endpoints": "支持端点",
+    "features": "支持特性",
+    "copyId": "复制模型名称",
+    "copied": "已复制！",
+    "loading": "加载模型列表中...",
+    "empty": "暂无可用模型",
+    "readyStatus": "运行中",
+    "quickStart": "快速集成示例"
+  },
+  "codeSnippet": {
+    "copyTitle": "复制代码",
+    "helloMessage": "你好，DeepSeek！",
+    "curlComment": "# 1. 发送对话完成请求（cURL）",
+    "pythonComment": "# 2. 使用 OpenAI Python SDK 集成",
+    "nodeComment": "// 3. 使用 OpenAI Node.js SDK 集成"
+  },
+  "profile": {
+    "role": "管理员",
+    "language": "语言设置",
+    "theme": "外观主题"
   },
   "language": {
     "zh": "中文",
-    "en": "English"
+    "en": "English",
+    "id": "Bahasa Indonesia"
   },
   "theme": {
     "system": "跟随系统",
@@ -184,6 +254,7 @@
     "copied": "已复制",
     "confirm": "确认",
     "success": "成功",
-    "error": "错误"
+    "error": "错误",
+    "refresh": "刷新"
   }
 }
