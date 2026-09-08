@@ -13,6 +13,9 @@ py-e2e-tests/uv.lock
 # 运行时敏感文件
 stats.json
 logs/
+ds-free-api
+ds-free-api-*
+*.tar.gz
 
 # tmp文件
 **/tmp.*
