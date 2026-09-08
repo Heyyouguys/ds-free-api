@@ -1,0 +1,19 @@
+{
+  "name": "DS Free API",
+  "short_name": "DS Free API",
+  "description": "DeepSeek Free API High-Performance Gateway & Admin Dashboard",
+  "start_url": "/admin/",
+  "scope": "/admin/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#09090b",
+  "background_color": "#09090b",
+  "icons": [
+    {
+      "src": "/admin/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
