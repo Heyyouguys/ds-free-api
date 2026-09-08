@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 import * as path from 'path';
 import * as fs from 'fs';
 
-const BASE_URL = 'http://127.0.0.1:5174';
+const BASE_URL = 'http://127.0.0.1:22217';
 const OUTPUT_DIR = '/home/dev/.gemini/antigravity-cli/brain/9a4d14c7-625b-4622-a0ba-0a01663204a1/screenshots';
 
 if (!fs.existsSync(OUTPUT_DIR)) {
