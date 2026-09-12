@@ -525,7 +525,7 @@ async fn try_init_account(
         } else {
             Some(creds.area_code.clone())
         },
-        device_id: String::new(),
+        device_id: creds.device_id.clone(),
         os: "web".to_string(),
     };
 
