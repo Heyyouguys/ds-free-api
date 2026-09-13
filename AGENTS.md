@@ -373,7 +373,9 @@ The `x-ds-account` HTTP response header carries the account identifier upstream.
 | `GET /anthropic/v1/models` | `handlers::anthropic_list_models` | List models (Anthropic format) |
 | `GET /anthropic/v1/models/{id}` | `handlers::anthropic_get_model` | Get model (Anthropic format) |
 
-Optional Bearer auth via `[[api_keys]]` in config; no auth when empty.|
+Bearer auth is **always enforced** on `/v1/*` and `/anthropic/*` via `[[api_keys]]`.
+If `api_keys` is empty no token can validate, so every API request returns
+`401 invalid_api_token` — create a key in the admin panel (or `[[api_keys]]`) first.
 
 ### Model ID Mapping
 
@@ -465,6 +467,7 @@ Follow `docs/code-style.md`:
 | Tool call parse failure | No `tool_calls` in response, raw XML visible | Model output a tag variant not in the parse list. Add fallback `extra_starts`/`extra_ends` in `config.toml` `[ds_core]` |
 | Rate limited | Repeated `CoreError::Overloaded` | Add more accounts or reduce concurrency. 6x exponential backoff handles transient spikes |
 | Session errors mid-stream | `invalid message id`, session not found | Usually handled by `GuardedStream::drop` cleanup. If persistent, check concurrent access to same account |
+| API request always 401 | `{"error":{"message":"invalid api token"}}` on every `/v1/*` call | `api_keys` is empty or the token doesn't match; there is **no** auth-free mode. Add a key via the admin panel |
 | Oversized prompt rejected | `413` or truncation errors | Prompt exceeds DeepSeek limit. The oversized fallback (history-split file upload / expert chunked completion) handles this automatically; tune `input_character_limits` in `[ds_core]` |
 | `不支持的模型: default` / client reports model not found | Model selection fails in Claude Code / Codex (issue #99) | Bare model_type names are accepted since v0.2.11 (`default` == `deepseek-default`). On older builds use the `deepseek-` prefix or set `model_aliases` |
 | Streaming stalls | No SSE events after initial connection | Check `RUST_LOG=adapter=trace,ds_core::accounts=debug,info` for where the pipeline halts |
