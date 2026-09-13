@@ -119,17 +119,35 @@ The admin panel is at `/admin` — on first visit you'll be guided to set an adm
 
 ## Model Mapping
 
-The `model_types` config in `config.toml` (default `["default", "expert", "vision"]`) maps to model IDs:
+> **⚠️ Upstream has retired `expert` / `vision` (2026-09)**
+>
+> The `model_configs` array from `/api/v0/client/settings` states it plainly:
+>
+> | model_type | Name | enabled | switchable |
+> |------------|------|---------|------------|
+> | `default` | Fast mode | ✅ true | ✅ true |
+> | `expert` | Expert mode | ❌ **false** | ❌ false |
+> | `vision` | Vision mode | ❌ **false** | ❌ false |
+>
+> The web UI no longer offers a switcher for the latter two — **there is effectively
+> only one model now**. This project therefore exposes `deepseek-default` only.
+> The expert/vision endpoints still respond, but upstream marks them disabled, so
+> enabling them leads to flaky requests. Set `model_types` explicitly if you must.
+
+The `model_types` config in `config.toml` (default `["default"]`) maps to `deepseek-<type>`:
 
 | OpenAI Model ID    | DeepSeek Mode  |
 | ------------------ | -------------- |
 | `deepseek-default` | Fast mode      |
-| `deepseek-expert`  | Expert mode    |
-| `deepseek-vision`  | Vision mode    |
+
+**Bare model names work too**: `default` (case-insensitive) is equivalent to
+`deepseek-default`, which helps clients that set `model` to a short name
+(Claude Code, Codex — see issue #99).
 
 Optional aliases via `model_aliases`, aligned by index with `model_types`. Empty strings are skipped:
 
 ```toml
+# model_types   = ["default", "expert"]
 # model_aliases = ["", "deepseek-v4-pro"]  → deepseek-v4-pro maps to expert (index 1)
 model_aliases = []
 ```

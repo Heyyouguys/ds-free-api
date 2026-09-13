@@ -514,7 +514,14 @@ where
             if matches!(&this.state, ToolParseState::CollectingXml { .. })
                 && this.last_keepalive.elapsed() >= KEEPALIVE_INTERVAL
             {
-                trace!(target: "adapter", ">>> keepalive: 发送空工具增量");
+                // 保活：XML 收集期间上游可能长时间无输出，这里发一个**空 delta** 心跳，
+                // 只为让连接不至于空闲超时。
+                //
+                // 早期实现发的是 `tool_calls: [{id:"", name:"", arguments:""}]`，
+                // 客户端按 index/id 累积工具调用时会把它当成一个个新的空工具调用，
+                // 表现为「反复工具调用」（issue #87）。空 delta 不携带任何
+                // tool_calls/content，客户端会自然忽略。
+                trace!(target: "adapter", ">>> keepalive: 发送空 delta 心跳");
                 *this.last_keepalive = tokio::time::Instant::now();
                 return Poll::Ready(Some(Ok(ChatCompletionsResponseChunk {
                     id: "chatcmpl-keepalive".into(),
@@ -523,19 +530,7 @@ where
                     model: this.model.clone(),
                     choices: vec![ChunkChoice {
                         index: 0,
-                        delta: Delta {
-                            tool_calls: Some(vec![ToolCall {
-                                id: String::new(),
-                                ty: "function".into(),
-                                function: Some(FunctionCall {
-                                    name: String::new(),
-                                    arguments: String::new(),
-                                }),
-                                custom: None,
-                                index: 0,
-                            }]),
-                            ..Default::default()
-                        },
+                        delta: Delta::default(),
                         finish_reason: None,
                         logprobs: None,
                     }],
@@ -988,5 +983,43 @@ mod tests {
         );
         let (calls, _) = parse_tool_calls(&xml).unwrap();
         assert_eq!(calls.len(), 1);
+    }
+
+    /// 回归（issue #87「反复工具调用」）：保活心跳必须是空 delta。
+    ///
+    /// 早期实现每秒发一个 `tool_calls: [{id:"", name:"", arguments:""}]`，
+    /// 客户端按 index/id 累积工具调用时会得到一串空工具调用，
+    /// 表现为反复调用工具。
+    #[tokio::test]
+    async fn keepalive_emits_empty_delta() {
+        use futures::StreamExt;
+
+        // 构造一个永不产出数据的内部流，且让状态停在 CollectingXml，
+        // 这样 poll_next 会走到保活分支。
+        let inner: Pin<
+            Box<dyn Stream<Item = Result<ChatCompletionsResponseChunk, OpenAIAdapterError>> + Send>,
+        > = Box::pin(futures::stream::pending());
+
+        let mut parser = ToolCallStream::new(
+            inner,
+            "deepseek-default".into(),
+            std::sync::Arc::new(TagConfig::from_config(&Default::default())),
+        );
+        // 手动把状态推进到 CollectingXml
+        parser.state = ToolParseState::CollectingXml {
+            buf: String::new(),
+            start_tag: TOOL_CALL_START.to_string(),
+        };
+        // 让上一次心跳时间早于阈值
+        parser.last_keepalive = tokio::time::Instant::now() - KEEPALIVE_INTERVAL * 2;
+
+        let chunk = parser.next().await.expect("应产生保活 chunk").unwrap();
+        let delta = &chunk.choices[0].delta;
+        assert!(
+            delta.tool_calls.is_none(),
+            "保活心跳不得携带 tool_calls（会诱发 issue #87 的反复工具调用）: {:?}",
+            delta.tool_calls
+        );
+        assert!(delta.content.is_none(), "保活心跳不得携带 content");
     }
 }

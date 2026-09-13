@@ -362,6 +362,8 @@ pub enum MessagesResponseChunk {
     ContentBlockStop {
         index: usize,
     },
+    /// 心跳事件：Anthropic 协议规定的 `ping`，客户端应忽略其内容
+    Ping,
     MessageDelta {
         stop_reason: Option<String>,
         stop_sequence: Option<String>,
@@ -387,6 +389,7 @@ impl MessagesResponseChunk {
             Self::ContentBlockStart { .. } => "content_block_start",
             Self::ContentBlockDelta { .. } => "content_block_delta",
             Self::ContentBlockStop { .. } => "content_block_stop",
+            Self::Ping => "ping",
             Self::MessageDelta { .. } => "message_delta",
             Self::MessageStop => "message_stop",
         }
@@ -417,6 +420,9 @@ impl MessagesResponseChunk {
             Self::ContentBlockStop { index } => serde_json::to_string(&serde_json::json!({
                 "type": "content_block_stop",
                 "index": index,
+            }))?,
+            Self::Ping => serde_json::to_string(&serde_json::json!({
+                "type": "ping",
             }))?,
             Self::MessageDelta {
                 stop_reason,

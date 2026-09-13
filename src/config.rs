@@ -71,10 +71,19 @@ pub struct DsCoreSection {
 impl DsCoreSection {
     /// 生成 OpenAI 模型注册表映射
     #[must_use]
+    /// 构建 model_id → model_type 的映射表
+    ///
+    /// 每个 model_type 会注册三种写法，便于客户端直接用裸名（例如 Claude Code
+    /// 里把 `model` 设成 `default`，见 issue #99）：
+    /// - `deepseek-{ty}`（标准 ID）
+    /// - `{ty}`（裸 model_type 名）
+    /// - `model_aliases[i]`（用户自定义别名，可选）
     pub fn model_registry(&self) -> std::collections::HashMap<String, String> {
         let mut map = std::collections::HashMap::new();
         for (i, ty) in self.model_types.iter().enumerate() {
             map.insert(format!("deepseek-{}", ty).to_lowercase(), ty.clone());
+            // 裸名：`default` / `expert` / `vision` 直接可用
+            map.entry(ty.to_lowercase()).or_insert_with(|| ty.clone());
             if let Some(alias) = self.model_aliases.get(i) {
                 let alias = alias.trim().to_lowercase();
                 if !alias.is_empty() {
@@ -174,24 +183,29 @@ fn default_tool_call_ends() -> Vec<String> {
     ]
 }
 
+/// 默认只启用 default 模型。
+///
+/// 上游 `/api/v0/client/settings` 的 `model_configs` 明确显示：
+/// `default` 为 `enabled: true, switchable: true`，而 `expert` 与 `vision`
+/// 均为 `enabled: false, switchable: false`（网页端已不再提供切换入口）。
+/// 因此默认不再暴露这两个模型，避免用户请求必然失败。
+/// 需要时仍可在 `config.toml` 中显式配置 `model_types = ["default", "expert", "vision"]`。
 fn default_model_types() -> Vec<String> {
-    vec![
-        "default".to_string(),
-        "expert".to_string(),
-        "vision".to_string(),
-    ]
+    vec!["default".to_string()]
 }
 
 fn default_max_input_tokens() -> Vec<u32> {
-    vec![1_048_576, 1_048_576, 1_048_576]
+    vec![1_048_576]
 }
 
 fn default_max_output_tokens() -> Vec<u32> {
-    vec![384_000, 384_000, 384_000]
+    vec![384_000]
 }
 
+/// 上游对全部 model_type 均返回 `input_character_limit: 2621440`，
+/// 历史上 expert 的 163840 已过期（上游现已放开）。
 fn default_input_character_limits() -> Vec<u32> {
-    vec![2_621_440, 163_840, 2_621_440]
+    vec![2_621_440]
 }
 
 fn default_api_base() -> String {

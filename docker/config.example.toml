@@ -65,13 +65,26 @@ port = 22217
 # url = "http://127.0.0.1:7890"
 # url = "socks5://127.0.0.1:7891"
 
-# 支持的模型类型列表，默认值为 ["default", "expert", "vision"]
-# model_types = ["default", "expert", "vision"]
-# max_input_tokens = [1048576, 1048576, 1048576]
-# max_output_tokens = [384000, 384000, 384000]
-# input_character_limits = [2621440, 163840, 2621440]
+# 支持的模型类型列表。
+#
+# 当前上游状态（见 /api/v0/client/settings 的 model_configs）：
+#   default  快速模式  enabled=true,  switchable=true
+#   expert   专家模式  enabled=false, switchable=false   ← 网页端已下线
+#   vision   识图模式  enabled=false, switchable=false   ← 网页端已下线
+#
+# 因此默认只暴露 default（即 deepseek-default）。
+# expert / vision 的 API 仍可调用，但上游已标记为 disabled，
+# 建议不要启用，否则用户请求容易失败或行为不稳定。
+# 若确需启用：model_types = ["default", "expert", "vision"]
+#
+# model_types = ["default"]
+# max_input_tokens = [1048576]
+# max_output_tokens = [384000]
+# 上游对全部 model_type 均返回 input_character_limit = 2621440
+# input_character_limits = [2621440]
 
 # 模型别名（可选，按 index 对齐 model_types，默认无别名）
+# 除 deepseek-<type> 外，裸 model_type 名（如 "default"）也可直接作为 model 使用
 # model_aliases = []
 
 # 工具调用标签配置
