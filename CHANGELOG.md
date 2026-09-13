@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **`AGENTS.md` 的账号初始化流程描述有误**（据代码核实）：
+  - 第 4 步写作 `update_title`，但该函数在 `ds_core/src/accounts/client.rs` 中
+    **没有任何调用点** —— 实际第 4 步是 `delete_session`（健康检查后清理临时 session，
+    失败路径同样会清理）
+  - "每个账号失败后重试 3 次，仍失败则标记 `InitFailed`" 不成立：
+    `AccountPool::init()` 内**没有重试**，失败即标记 `Invalid`（且**不存在 `InitFailed` 状态**，
+    实际状态为 `Idle`/`Busy`/`Error`/`Invalid`）。重试位于后台恢复任务
+    （`start_recovery_task`，每 60s 重登 `Error` 账号，连续失败达 `MAX_ERROR_COUNT`=3 次转 `Invalid`）
+  - 同时把「`device_id` 可选」更正为**必填**：实测不带 `device_id` 登录直接被风控拒绝
+    （`RISK_DEVICE_DETECTED`，biz_code 11）
+
 ## [0.3.0] - 2026-09-13
 
 新增 OpenAI Responses API 端点，并按上游规范逐条核对了 Chat Completions 与

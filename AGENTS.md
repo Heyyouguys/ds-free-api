@@ -267,13 +267,22 @@ Every module has one job. Cross-module boundaries are strict:
 
 ### Account Initialization Flow
 
-`AccountPool::init()` spins up accounts concurrently (capped at 13 via `tokio::sync::Semaphore`):
-1. `login` — obtain Bearer token (payload carries the account's optional `device_id`)
-2. `create_session` — create chat session
-3. `health_check` — test completion (with PoW) to verify writable session
-4. `update_title` — rename session to "managed-by-ai-free-api"
+`AccountPool::init()` spins up accounts concurrently (capped at 13 via `tokio::sync::Semaphore`).
+Each account runs `try_init_account()`:
+1. `login` — obtain Bearer token (payload carries the account's `device_id`; **omitting it
+   fails with `RISK_DEVICE_DETECTED`, biz_code 11** — verified empirically, see `docs/development.md`)
+2. `create_session` — create a temporary chat session
+3. `health_check` — test completion (with PoW) against `default` to verify a writable session
+4. `delete_session` — always runs, including on health-check failure
 
-Each account retries 3x with 2s delay on failure. If an account fails all retries it's marked as `InitFailed`.
+There is **no retry inside `init()`** and **no `InitFailed` state** — a failure immediately
+marks the account `Invalid`. The states are `Idle` / `Busy` / `Error` / `Invalid`.
+
+Retries live in the background recovery task (`start_recovery_task`, every 60s): accounts in
+`Error` are re-logged-in, and after `MAX_ERROR_COUNT` (3) consecutive failures they become `Invalid`.
+
+`update_title` exists in the raw client (`ds_core/src/accounts/client.rs`) but has **no call
+site** — do not describe it as part of the init flow.
 
 ### Request Flow (per-chat)
 
