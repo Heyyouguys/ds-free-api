@@ -7,6 +7,41 @@
 - `cmake`、`g++`、`libclang-dev`（编译 `wreq` 依赖的 BoringSSL）
 - `just` 命令运行器（用于 `just serve` / `just check` 等快捷命令）
 
+## 账号准备与风控（重要）
+
+登录 `POST /api/v0/users/login` 会经过 DeepSeek 的风控校验，常见失败码：
+
+| biz_code | biz_msg | 说明 | 处理方式 |
+|----------|---------|------|----------|
+| `10` | `USER_IS_BANNED` | 账号被永久封禁 | 不可恢复，注册新账号 |
+| `5` | `user is muted` | 临时禁言，响应 `biz_data.mute_until` 为解封时间戳（通常数周） | 重登无效，health_check 会失败并把账号置为 `invalid`，只能等解封或换号 |
+| `11` | `RISK_DEVICE_DETECTED` | 缺设备指纹，登录被风控拦截 | 为该账号配置 `device_id` |
+| `2` | `PASSWORD_OR_USER_NAME_IS_WRONG` | 账号或密码错误 | 核对凭据 |
+
+### 获取并配置 `device_id`
+
+`device_id` 由数美（Shumei）SDK 在浏览器中生成，是**设备级**而非账号级的值，一台机器取一次即可复用到该机器上的所有账号：
+
+1. 用 Chrome 打开 `https://chat.deepseek.com/sign_in`，登录一次，等待页面完全加载
+2. 开发者工具 → Network，过滤 `users/login`，发起登录后查看该请求的 Payload，复制 `device_id`
+3. 或直接在控制台执行 `SMSdk.getDeviceId()`（需等 SDK 就绪）
+4. 写入配置：
+
+```toml
+[[ds_core.accounts]]
+email = "you@example.com"
+mobile = ""
+area_code = ""
+password = "your-password"
+device_id = "抓取到的值"
+```
+
+管理面板 → 配置页也有该字段；提交时留空（或旧前端不发送该字段）会保留服务端已有值，
+因此升级后既有配置无需改动。
+
+> 提醒：官方近期对共享账号封禁力度很大，公开测试账号基本已全部失效，
+> 请使用自己的账号并在多账号间保持合理并发（推荐并发数 = 账号数 ÷ 2）。
+
 ## 首次启动
 
 ```bash
@@ -113,6 +148,64 @@ just adapter-cli
 # 使用 e2e 专属配置启动服务
 just e2e-serve
 ```
+
+## Web 前端
+
+Vite + React + shadcn/ui，位于 `web/`，构建产物由 `rust_embed` 在编译期嵌入二进制。
+
+```bash
+cd web
+bun install --frozen-lockfile
+bun run typecheck   # tsc -b
+bun run build       # 产物输出到 web/dist/
+bun run lint        # eslint
+```
+
+本地联调时推荐同时运行 `bun run dev`（Vite HMR）与 `just serve`；后端检测到文件系统存在
+`web/dist/` 时优先从磁盘读取，改动无需重新编译 Rust。
+
+### 目录约定
+
+- `src/pages/`：`DashboardPage` / `ConfigPage` / `SettingsPage` / `LogsPage` / `ModelsPage` / `LoginPage` / `Layout`
+- `src/components/`：`LanguageSwitcher`、`ThemeSwitcher`、`UserDropdown`、`CodeSnippet`、`SplashScreen`
+- `src/lib/`：`api.ts`（全部管理端点 + `normalizeConfig` / `localizeAuthError`）、`auth.tsx`、`theme.ts`
+- `src/locales/{zh,en,id}/common.json`：三语词条
+
+### i18n 约定
+
+新增文案时必须**同时**修改 `zh` / `en` / `id` 三个文件，保持 key 完全一致。
+`ConfigPage.tsx` 里曾因引用 `config.ds_core.accounts.*`（而词条在 `config.accounts.*`）
+导致页面直接显示原始 key，提交前建议自查一遍：
+
+```bash
+python3 - <<'PY'
+import json,re,glob
+used=set()
+for f in glob.glob('web/src/**/*.tsx',recursive=True)+glob.glob('web/src/**/*.ts',recursive=True):
+    used |= set(re.findall(r"\bt\(\s*['\"]([^'\"]+)['\"]", open(f,encoding='utf-8').read()))
+def flat(d,p=''):
+    out=set()
+    for k,v in d.items():
+        nk=f"{p}.{k}" if p else k
+        out |= flat(v,nk) if isinstance(v,dict) else {nk}
+    return out
+for loc in ('en','zh','id'):
+    have=flat(json.load(open(f'web/src/locales/{loc}/common.json')))
+    print(loc, 'missing:', sorted(used-have))
+PY
+```
+
+### 响应式与 PWA
+
+- 侧边栏折叠状态存 `localStorage`（key `ds-sidebar-collapsed`），平板折叠为图标栏，移动端使用底部标签栏
+- `public/sw.js` 由 `index.html` 在 `/admin/` 作用域注册：静态资源 stale-while-revalidate，
+  `/admin/api/*` 直连网络（离线时返回 JSON 错误而非缓存）
+- `web/e2e/capture-responsive.ts` 是 Playwright 截图脚本，需要本地 22217 端口有服务在跑：
+
+  ```bash
+  cd web && npx playwright install chromium
+  node e2e/capture-responsive.ts
+  ```
 
 ## e2e 测试
 

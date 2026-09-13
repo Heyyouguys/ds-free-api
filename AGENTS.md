@@ -152,31 +152,42 @@ The binary embeds `web/dist/` via `rust_embed` at compile time.
 ```
 web/
 ├── src/
-│   ├── App.tsx            # Routes (login + protected layout + pages)
+│   ├── App.tsx            # Routes: /login + protected layout (dashboard/models/config/settings/logs) + SplashScreen
 │   ├── lib/               # Shared libraries
-│   │   ├── api.ts         # Typed API client for all admin endpoints
+│   │   ├── api.ts         # Typed API client for all admin endpoints (+ normalizeConfig, localizeAuthError)
 │   │   ├── auth-context.ts # Auth context provider
 │   │   ├── auth.tsx       # JWT auth context (localStorage token)
 │   │   ├── use-auth.ts    # Auth hook for components
+│   │   ├── theme.ts       # useTheme hook (system/light/dark, localStorage)
 │   │   └── utils.ts       # Utility functions
-│   ├── pages/             # ConfigPage, DashboardPage, Layout, LoginPage, LogsPage, ModelsPage
-│   └── components/ui/     # shadcn/ui primitives (badge, button, card, input, etc.)
-├── public/favicon.svg     # → symlink to assets/logo.svg
+│   ├── i18n/index.ts      # i18next init (zh / en / id)
+│   ├── locales/           # zh/common.json, en/common.json, id/common.json (identical key sets)
+│   ├── pages/             # ConfigPage, DashboardPage, Layout, LoginPage, LogsPage, ModelsPage, SettingsPage
+│   └── components/        # LanguageSwitcher, ThemeSwitcher, UserDropdown, CodeSnippet, SplashScreen
+│       └── ui/            # shadcn/ui primitives (badge, button, card, input, table, skeleton, etc.)
+├── public/                # favicon.svg (symlink to assets/logo.svg), manifest.json, manifest.webmanifest, sw.js
+├── e2e/capture-responsive.ts # Playwright responsive screenshot suite (port 22217)
 ├── index.html
 ├── package.json
 └── vite.config.ts
 ```
 
-The frontend includes i18n support (`web/src/i18n/`, `web/src/locales/zh/`, `web/src/locales/en/`)
-and a language switcher component (`web/src/components/LanguageSwitcher.tsx`).
-It also has a theme switcher (system/light/dark) in the layout.
-Library files include `api.ts`, `auth.tsx`, `auth-context.ts`, `use-auth.ts`, and `utils.ts`.
-Pages: `ConfigPage`, `DashboardPage`, `Layout`, `LoginPage`, `LogsPage`, `ModelsPage`.
+The frontend includes i18n support (`web/src/i18n/`, `web/src/locales/{zh,en,id}/`) — all three
+locales must keep **identical key sets**; adding a key to one file requires adding it to the other two.
+Language switching lives in `LanguageSwitcher.tsx` / `UserDropdown.tsx`, theme switching
+(system/light/dark) in `lib/theme.ts` + `ThemeSwitcher.tsx`.
+Library files include `api.ts`, `auth.tsx`, `auth-context.ts`, `use-auth.ts`, `theme.ts`, and `utils.ts`.
+Pages: `ConfigPage`, `DashboardPage`, `Layout`, `LoginPage`, `LogsPage`, `ModelsPage`, `SettingsPage`.
+
+**Responsive + PWA**: the layout collapses to an icon rail on tablets and a bottom tab bar on
+mobile; `SplashScreen.tsx` covers initial hydration, and `public/sw.js` (registered from
+`index.html` under `/admin/`) caches static assets while passing `/admin/api/*` straight to the network.
 
 **Admin panel config editor**: `ConfigPage.tsx` fetches from `GET /admin/api/config`,
-edits all sections (accounts, api_keys, server, deepseek, models, proxy, tool_call tags),
-submits via `PUT /admin/api/config` (full replace + hot-reload). Passwords/key values
-sent as `***`/empty are merged with existing values server-side.
+edits accounts / API keys / model types / tool-call tags and submits via `PUT /admin/api/config`
+(full replace + hot-reload); `SettingsPage.tsx` handles server / proxy / ds_core fields and
+admin password change. Passwords and `device_id` values sent as `***`/empty are merged with
+existing values server-side.
 
 **Dev mode (HMR)**: Run `cd web && bun run dev` (Vite HMR) alongside `just serve`.
 Backend reads from `web/dist/` filesystem when available.
@@ -215,7 +226,7 @@ Every module has one job. Cross-module boundaries are strict:
 ### Account Initialization Flow
 
 `AccountPool::init()` spins up accounts concurrently (capped at 13 via `tokio::sync::Semaphore`):
-1. `login` — obtain Bearer token
+1. `login` — obtain Bearer token (payload carries the account's optional `device_id`)
 2. `create_session` — create chat session
 3. `health_check` — test completion (with PoW) to verify writable session
 4. `update_title` — rename session to "managed-by-ai-free-api"
@@ -283,6 +294,18 @@ Multi-turn conversations split history at `split_history_prompt()`:
 - External files (data URLs) upload individually with a separate PoW computation targeting `/api/v0/file/upload_file`
 - Upload polling: 3 attempts with 0.5/1/2s backoff, checking file existence via `fetch_files`
 
+### Oversized Prompt Chunk Splitting
+
+The expert chunked path slices the prompt with `split_prompt_chunks()` in `ds_core/src/chat/request.rs`:
+- Boundaries are taken at `<｜Role｜>` tags; whole message blocks are greedily packed up to `chunk_size`
+  (75% of `input_character_limits` for the model type), so a tag is never cut in half
+  (a half tag such as `<｜Assista` / `nt｜>` makes upstream return an empty completion)
+- A single message block larger than `chunk_size` falls back to a plain character split of that block
+- If the prompt contains no tags at all, the whole prompt is character-split
+
+Prompt history is also split at `split_history_prompt()` (see above), which parses the same
+native `<｜Role｜>` tags via `parse_native_blocks()`.
+
 ### Capability Toggles
 
 Request fields mapped in `request/resolver.rs`:
@@ -290,6 +313,8 @@ Request fields mapped in `request/resolver.rs`:
 - **Web search**: `web_search_options` enables; omitted = off.
 - **File upload**: data URL content parts → auto upload to session; HTTP URLs → search mode.
 - **Response format**: `response_format` → JSON/schema text injection in prompt.
+- **Login `device_id`**: optional per-account field forwarded into the `/users/login` payload;
+  required to pass `RISK_DEVICE_DETECTED` (biz_code 11) risk control. See `docs/development.md`.
 
 ### Overloaded Retry
 
@@ -424,6 +449,8 @@ Follow `docs/code-style.md`:
 | WAF blocking (non-US) | AWS WAF Challenge response (status 202) | Configure a non-US proxy in `config.toml` `[proxy]` |
 | WAF blocking (fingerprint) | HTTP 403 or connection reset | `wreq` with BoringSSL automatically emulates Chrome 136 TLS fingerprint. If blocked, try updating `wreq` or switching emulation profile |
 | Account init failure | All accounts stuck in init | Bad credentials (login fails first) or rate-limited (too many sessions). Check `[accounts]` in config |
+| Login fails with `RISK_DEVICE_DETECTED` (biz_code 11) | `客户端错误: Business error: code=11, msg=RISK_DEVICE_DETECTED` during account init | DeepSeek requires a browser-registered device fingerprint. Capture `device_id` from a real browser login (`POST /api/v0/users/login`) and set it per account in `config.toml` / the admin panel |
+| Account init fails with `user is muted` (biz_code 5) | `账号配置错误: 账号异常(muted/limited)`, account left in `invalid` | The account is temporarily muted upstream (response carries `mute_until`, typically weeks). It cannot be recovered by re-login — register a new account |
 | Tool call parse failure | No `tool_calls` in response, raw XML visible | Model output a tag variant not in the parse list. Add fallback `extra_starts`/`extra_ends` in `config.toml` `[ds_core]` |
 | Rate limited | Repeated `CoreError::Overloaded` | Add more accounts or reduce concurrency. 6x exponential backoff handles transient spikes |
 | Session errors mid-stream | `invalid message id`, session not found | Usually handled by `GuardedStream::drop` cleanup. If persistent, check concurrent access to same account |
@@ -473,6 +500,10 @@ Follow `docs/code-style.md`:
 | Store manager | `src/server/store.rs` | API key validation, stats persistence, delegates admin/keys to `Config::save()` |
 | Request stats | `src/server/stats.rs` | `RequestStats`, `StatsHandle`, background flush to `stats.json` |
 | Runtime log | `src/server/runtime_log.rs` | stdout redirect to `runtime.log` with rotation |
+| Web admin panel | `web/src/pages/` | Dashboard/Config/Settings/Logs/Models pages, `lib/api.ts` API client |
+| i18n locales | `web/src/locales/{zh,en,id}/common.json` | Keep the three key sets identical; see `web/src/i18n/index.ts` |
+| PWA assets | `web/public/` | `manifest.webmanifest`, `sw.js` (registered under `/admin/`) |
+| Responsive screenshots | `web/e2e/capture-responsive.ts` | Playwright; needs a running server on port 22217 |
 
 ---
 

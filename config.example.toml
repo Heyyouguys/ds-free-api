@@ -26,10 +26,18 @@ port = 22217
 # area_code = "+86"
 # password = "pass2"
 
-# 设备指纹 ID（可选）：登录返回 RISK_DEVICE_DETECTED 风控时填写
-# 获取方式：用浏览器打开 chat.deepseek.com 并登录一次，
-# 抓取 POST /api/v0/users/login 请求体中的 device_id 值。
+# 设备指纹 ID（可选）：登录返回 RISK_DEVICE_DETECTED（biz_code=11）风控时必填
+# 获取方式：用 Chrome 打开 https://chat.deepseek.com/sign_in 并登录一次，
+# 在开发者工具 → Network 中查看 POST /api/v0/users/login 请求体里的 device_id 值；
+# 也可在页面加载完成后于控制台执行 SMSdk.getDeviceId() 直接读取。
 # 该 ID 是设备级的（同一浏览器/机器可复用于多个账号），获取一次即可长期复用。
+# 留空则沿用服务端已有值（管理面板保存时不会覆盖）。
+# 示例（按账号分别填写）：
+# [[ds_core.accounts]]
+# email = "user2@example.com"
+# mobile = ""
+# area_code = ""
+# password = "pass3"
 # device_id = "Bjyk87PcoVWPPBrs3aHGgXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX=="
 
 # 已验证通过的 User-Agent（Android 客户端模拟）
