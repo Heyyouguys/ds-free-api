@@ -30,9 +30,9 @@ mod tests {
         thinking_enabled: bool,
         search_enabled: bool,
         stream: bool,
-        include_usage: bool,
-        include_obfuscation: bool,
         stop: Vec<String>,
+        /// (include_usage, include_obfuscation)
+        opts: (bool, bool),
     }
 
     fn parse_json(val: serde_json::Value) -> Result<TestRequest, OpenAIAdapterError> {
@@ -91,9 +91,8 @@ mod tests {
             thinking_enabled: model_res.thinking_enabled,
             search_enabled: model_res.search_enabled,
             stream: req.stream,
-            include_usage: norm.include_usage,
-            include_obfuscation: norm.include_obfuscation,
             stop: norm.stop,
+            opts: (norm.include_usage, norm.include_obfuscation),
         })
     }
 
@@ -306,9 +305,8 @@ mod tests {
             "messages": [{ "role": "user", "content": "hi" }]
         }))
         .unwrap();
-        assert_eq!(req.stream, false);
-        assert_eq!(req.include_usage, false);
-        assert_eq!(req.include_obfuscation, true);
+        assert!(!req.stream);
+        assert_eq!(req.opts, (false, true));
 
         // 显式覆盖
         let req2 = parse_json(serde_json::json!({
@@ -317,8 +315,7 @@ mod tests {
             "stream_options": { "include_usage": true, "include_obfuscation": false }
         }))
         .unwrap();
-        assert_eq!(req2.include_usage, true);
-        assert_eq!(req2.include_obfuscation, false);
+        assert_eq!(req2.opts, (true, false));
     }
 
     // tools 校验与注入

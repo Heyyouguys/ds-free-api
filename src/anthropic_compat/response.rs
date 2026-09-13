@@ -16,11 +16,26 @@ pub(crate) use crate::anthropic_compat::types::ResponseContentBlock as ContentBl
 // 共享辅助函数
 // ============================================================================
 
+/// OpenAI `finish_reason` → Anthropic `stop_reason`
+///
+/// Anthropic 的 `StopReason` 枚举只有
+/// `end_turn | max_tokens | stop_sequence | tool_use | pause_turn | refusal |
+/// model_context_window_exceeded`。直接把 OpenAI 的值透传会产生客户端无法识别的
+/// 取值（例如 `length` / `content_filter`），必须显式映射。
 pub(crate) fn finish_reason_map(reason: &str) -> String {
     match reason {
-        "stop" => "end_turn".to_string(),
-        "tool_calls" => "tool_use".to_string(),
-        _ => reason.to_string(),
+        "stop" | "end_turn" => "end_turn".to_string(),
+        "tool_calls" | "function_call" | "tool_use" => "tool_use".to_string(),
+        "length" | "max_tokens" => "max_tokens".to_string(),
+        "content_filter" | "refusal" => "refusal".to_string(),
+        // 未知取值退化为自然结束，避免发出非法枚举值
+        other => {
+            log::warn!(
+                target: "anthropic_compat::response",
+                "未知 finish_reason {:?}，按 end_turn 处理", other
+            );
+            "end_turn".to_string()
+        }
     }
 }
 

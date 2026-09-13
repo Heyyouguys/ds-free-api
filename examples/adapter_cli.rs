@@ -315,12 +315,9 @@ fn print_stream_chunk(bytes: &Bytes) {
         .and_then(|s| s.strip_suffix("\n\n"))
         .unwrap_or(&text);
 
-    let v: serde_json::Value = match serde_json::from_str(json_str) {
-        Ok(val) => val,
-        Err(_) => {
-            print!("{}", text);
-            return;
-        }
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str) else {
+        print!("{}", text);
+        return;
     };
 
     let choice = v.get("choices").and_then(|c| c.get(0));
@@ -337,11 +334,11 @@ fn print_stream_chunk(bytes: &Bytes) {
         .and_then(|f| f.as_str());
     let usage = v.get("usage");
 
-    if choice.is_none() || usage.is_some() {
-        if let Some(u) = usage {
-            println!("[usage] {}", u);
-            return;
-        }
+    if (choice.is_none() || usage.is_some())
+        && let Some(u) = usage
+    {
+        println!("[usage] {}", u);
+        return;
     }
 
     let mut parts = Vec::new();

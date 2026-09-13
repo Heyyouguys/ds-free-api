@@ -10,7 +10,7 @@ interface CodeSnippetProps {
 
 export function CodeSnippet({ className }: CodeSnippetProps) {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<'curl' | 'python' | 'node'>('curl');
+  const [tab, setTab] = useState<'curl' | 'python' | 'node' | 'responses'>('curl');
   const [copied, setCopied] = useState(false);
 
   const snippets = {
@@ -67,7 +67,19 @@ const response = await client.chat.completions.create({
 for await (const chunk of response) {
   const content = chunk.choices[0]?.delta?.content || "";
   process.stdout.write(content);
-}`
+}`,
+    responses: `${t('codeSnippet.responsesComment')}
+curl -X POST http://127.0.0.1:22217/v1/responses \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "model": "deepseek-default",
+    "input": "${t('codeSnippet.helloMessage')}",
+    "stream": true
+  }'
+
+# ${t('codeSnippet.responsesNote')}
+# {"type": "response.output_text.delta", "delta": "..." }`
   };
 
   const handleCopy = () => {
@@ -134,6 +146,22 @@ for await (const chunk of response) {
             >
               <Code2 className="h-3.5 w-3.5 text-sky-400" />
               <span>Node.js</span>
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'responses'}
+              onClick={() => setTab('responses')}
+              className={cn(
+                'flex items-center h-full gap-1.5 px-2.5 text-xs rounded-md transition-all font-medium shrink-0',
+                tab === 'responses'
+                  ? 'bg-zinc-800 text-zinc-100 shadow-xs'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              )}
+            >
+              <Terminal className="h-3.5 w-3.5 text-sky-400" />
+              <span>Responses</span>
             </button>
           </div>
         </div>

@@ -166,7 +166,11 @@
     "engineTitle": "Parameter Mesin DeepSeek",
     "engineDescription": "Konfigurasi endpoint API resmi, URL WASM kalkulasi PoW, dan identitas User-Agent",
     "unsavedChanges": "Terdapat perubahan pengaturan yang belum disimpan",
-    "allSynced": "Semua pengaturan tersinkronisasi"
+    "allSynced": "Semua pengaturan tersinkronisasi",
+    "responsesStore": "Cache Konteks Responses API",
+    "responsesStoreDesc": "Cache dalam proses yang menopang previous_response_id. Entri dihapus setelah TTL atau saat kapasitas terlampaui.",
+    "storeCapacity": "Kapasitas Cache",
+    "storeTtl": "TTL (detik)"
   },
   "logs": {
     "title": "Log",
@@ -227,7 +231,9 @@
     "helloMessage": "Halo, DeepSeek!",
     "curlComment": "# 1. Kirim Permintaan Chat Completion (cURL)",
     "pythonComment": "# 2. Integrasi Menggunakan OpenAI Python SDK",
-    "nodeComment": "// 3. Integrasi Menggunakan OpenAI Node.js SDK"
+    "nodeComment": "// 3. Integrasi Menggunakan OpenAI Node.js SDK",
+    "responsesComment": "# 4. OpenAI Responses API",
+    "responsesNote": "Responses API juga mendukung previous_response_id untuk konteks multi-turn."
   },
   "profile": {
     "role": "Administrator",

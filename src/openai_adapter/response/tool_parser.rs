@@ -455,6 +455,7 @@ fn make_end_chunk(
         usage: None,
         service_tier: None,
         system_fingerprint: None,
+        obfuscation: None,
     }
 }
 
@@ -504,7 +505,7 @@ where
         let mut this = self.project();
 
         if let Some(tool_text) = this.repair_pending.take() {
-            debug!(target: "adapter", "tool_parser 发出修复请求");
+            debug!(target: "adapter", "tool_parser requesting repair");
             return Poll::Ready(Some(Err(OpenAIAdapterError::ToolCallRepairNeeded(
                 tool_text,
             ))));
@@ -521,7 +522,7 @@ where
                 // 客户端按 index/id 累积工具调用时会把它当成一个个新的空工具调用，
                 // 表现为「反复工具调用」（issue #87）。空 delta 不携带任何
                 // tool_calls/content，客户端会自然忽略。
-                trace!(target: "adapter", ">>> keepalive: 发送空 delta 心跳");
+                trace!(target: "adapter", ">>> keepalive: sending empty delta");
                 *this.last_keepalive = tokio::time::Instant::now();
                 return Poll::Ready(Some(Ok(ChatCompletionsResponseChunk {
                     id: "chatcmpl-keepalive".into(),
@@ -537,6 +538,7 @@ where
                     usage: None,
                     service_tier: None,
                     system_fingerprint: None,
+                    obfuscation: None,
                 })));
             }
 
@@ -559,7 +561,7 @@ where
                                 let maybe_tag = find_start_tag_with(buffer, this.tag_config)
                                     .map(|(pos, tag)| (pos, tag.to_string()));
                                 if let Some((pos, start_tag)) = maybe_tag {
-                                    trace!(target: "adapter", ">>> 检测到 start_tag={}, buf_len={}", start_tag, buffer.len());
+                                    trace!(target: "adapter", ">>> detected start_tag={}, buf_len={}", start_tag, buffer.len());
                                     let before = buffer[..pos].to_string();
                                     let rest = std::mem::take(buffer)[pos..].to_string();
                                     if let Some((end_pos, matched_end)) = find_end_tag_with(
@@ -589,7 +591,7 @@ where
                                         let end_abs = end_pos + matched_end.len();
                                         let collected = &rest[..end_abs];
                                         if let Some((calls, _)) = parse_tool_calls(collected) {
-                                            debug!(target: "adapter", "tool_parser 解析出 {} 个工具调用", calls.len());
+                                            debug!(target: "adapter", "tool_parser parsed {} tool call(s)", calls.len());
                                             choice.delta.content = if before.is_empty() {
                                                 None
                                             } else {
@@ -601,8 +603,8 @@ where
                                             }
                                             *this.state = ToolParseState::Done;
                                         } else {
-                                            trace!(target: "adapter", "tool_parser 解析失败，collected=\n{}", &collected[..collected.len().min(500)]);
-                                            warn!(target: "adapter", "tool_parser 解析失败→请求修复");
+                                            trace!(target: "adapter", "tool_parser parse failed, collected=\n{}", &collected[..collected.len().min(500)]);
+                                            warn!(target: "adapter", "tool_parser parse failed -> requesting repair");
                                             let collected = collected.to_string();
                                             if before.is_empty() {
                                                 return Poll::Ready(Some(Err(
@@ -644,7 +646,7 @@ where
                             ToolParseState::CollectingXml { buf, start_tag } => {
                                 buf.push_str(&content);
                                 if buf.len() > MAX_XML_BUF_LEN {
-                                    debug!(target: "adapter", "tool_parser 缓冲超限，回退纯文本");
+                                    debug!(target: "adapter", "tool_parser buffer overflow, falling back to plain text");
                                     let flushed = std::mem::take(buf);
                                     *this.state = ToolParseState::Detecting {
                                         buffer: String::new(),
@@ -669,7 +671,7 @@ where
                                     let collected = buf[..end_abs].to_string();
                                     let _tail = buf.split_off(end_abs);
                                     if let Some((calls, _)) = parse_tool_calls(&collected) {
-                                        debug!(target: "adapter", "tool_parser 解析出 {} 个工具调用", calls.len());
+                                        debug!(target: "adapter", "tool_parser parsed {} tool call(s)", calls.len());
                                         choice.delta.content = None;
                                         choice.delta.tool_calls = Some(calls);
                                         if choice.finish_reason == Some("stop") {
@@ -677,8 +679,8 @@ where
                                         }
                                         *this.state = ToolParseState::Done;
                                     } else {
-                                        trace!(target: "adapter", "tool_parser 解析失败(流结束)，collected=\n{}", &collected[..collected.len().min(500)]);
-                                        warn!(target: "adapter", "tool_parser 解析失败→请求修复");
+                                        trace!(target: "adapter", "tool_parser parse failed (stream end), collected=\n{}", &collected[..collected.len().min(500)]);
+                                        warn!(target: "adapter", "tool_parser parse failed -> requesting repair");
                                         return Poll::Ready(Some(Err(
                                             OpenAIAdapterError::ToolCallRepairNeeded(collected),
                                         )));
@@ -714,13 +716,13 @@ where
                             if choice.finish_reason.is_some() {
                                 let flushed = std::mem::take(buf);
                                 if let Some((calls, _)) = parse_tool_calls(&flushed) {
-                                    debug!(target: "adapter", "tool_parser 流结束时解析出 {} 个工具调用", calls.len());
+                                    debug!(target: "adapter", "tool_parser parsed {} tool call(s) at stream end", calls.len());
                                     choice.delta.tool_calls = Some(calls);
                                     if choice.finish_reason == Some("stop") {
                                         choice.finish_reason = Some("tool_calls");
                                     }
                                 } else {
-                                    warn!(target: "adapter", "tool_parser finish→请求修复");
+                                    warn!(target: "adapter", "tool_parser finish -> requesting repair");
                                     *this.state = ToolParseState::Done;
                                     return Poll::Ready(Some(Err(
                                         OpenAIAdapterError::ToolCallRepairNeeded(flushed),
@@ -763,7 +765,7 @@ where
                     }
                     ToolParseState::CollectingXml { buf, start_tag: _ } => {
                         if let Some((calls, _)) = parse_tool_calls(&buf) {
-                            debug!(target: "adapter", "tool_parser 流结束时解析出 {} 个工具调用", calls.len());
+                            debug!(target: "adapter", "tool_parser parsed {} tool call(s) at stream end", calls.len());
                             let chunk = make_end_chunk(
                                 this.model,
                                 Delta {
@@ -774,7 +776,7 @@ where
                             );
                             return Poll::Ready(Some(Ok(chunk)));
                         }
-                        warn!(target: "adapter", "tool_parser 流结束→请求修复");
+                        warn!(target: "adapter", "tool_parser stream end -> requesting repair");
                         return Poll::Ready(Some(Err(OpenAIAdapterError::ToolCallRepairNeeded(
                             buf,
                         ))));
@@ -1003,7 +1005,9 @@ mod tests {
         let mut parser = ToolCallStream::new(
             inner,
             "deepseek-default".into(),
-            std::sync::Arc::new(TagConfig::from_config(&Default::default())),
+            std::sync::Arc::new(TagConfig::from_config(
+                &crate::config::ToolCallTagConfig::default(),
+            )),
         );
         // 手动把状态推进到 CollectingXml
         parser.state = ToolParseState::CollectingXml {

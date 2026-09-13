@@ -19,17 +19,29 @@ pub struct OpenAIErrorBody {
     error: OpenAIErrorDetail,
 }
 
+/// OpenAI 错误明细：`Error` schema 要求 `type`/`message`/`param`/`code` 四个字段齐备
 #[derive(Debug, Serialize)]
 struct OpenAIErrorDetail {
     message: String,
     #[serde(rename = "type")]
     error_type: &'static str,
+    param: Option<String>,
     code: &'static str,
 }
 
 /// Anthropic 兼容错误响应体
+///
+/// 规范形态是 `{"type":"error","error":{"type":"<kind>","message":"..."}}`，
+/// 而不是把 error kind 放在顶层。
 #[derive(Debug, Serialize)]
 pub struct AnthropicErrorBody {
+    #[serde(rename = "type")]
+    outer_type: &'static str,
+    error: AnthropicErrorDetail,
+}
+
+#[derive(Debug, Serialize)]
+struct AnthropicErrorDetail {
     #[serde(rename = "type")]
     error_type: &'static str,
     message: String,
@@ -117,6 +129,7 @@ fn openai_error_response(err: &ServerError) -> Response {
         error: OpenAIErrorDetail {
             message: err.to_string(),
             error_type,
+            param: None,
             code,
         },
     };
@@ -142,11 +155,17 @@ fn anthropic_error_response(err: &AnthropicCompatError) -> Response {
     };
 
     let body = AnthropicErrorBody {
-        error_type,
-        message: err.to_string(),
+        outer_type: "error",
+        error: AnthropicErrorDetail {
+            error_type,
+            message: err.to_string(),
+        },
     };
 
-    log::debug!(target: "http::response", "{} Anthropic error: {}", status, body.message);
+    log::debug!(
+        target: "http::response",
+        "{} Anthropic error: {}", status, body.error.message
+    );
 
     let mut resp = (status, Json(body)).into_response();
     if status == StatusCode::TOO_MANY_REQUESTS {
@@ -154,4 +173,33 @@ fn anthropic_error_response(err: &AnthropicCompatError) -> Response {
             .insert(header::RETRY_AFTER, HeaderValue::from_static("30"));
     }
     resp
+}
+
+/// Anthropic 形态的鉴权/未找到错误（供 `/anthropic/*` 路由使用）
+///
+/// 中间件无法访问 handler 的 `ServerError`，因此这里提供独立构造函数，
+/// 保证 Anthropic 客户端收到规范的错误信封而不是 OpenAI 形态。
+#[must_use]
+pub fn anthropic_auth_error() -> Response {
+    let body = AnthropicErrorBody {
+        outer_type: "error",
+        error: AnthropicErrorDetail {
+            error_type: "authentication_error",
+            message: "invalid api token".to_string(),
+        },
+    };
+    (StatusCode::UNAUTHORIZED, Json(body)).into_response()
+}
+
+/// Anthropic 形态的 404
+#[must_use]
+pub fn anthropic_not_found_error(message: &str) -> Response {
+    let body = AnthropicErrorBody {
+        outer_type: "error",
+        error: AnthropicErrorDetail {
+            error_type: "not_found_error",
+            message: message.to_string(),
+        },
+    };
+    (StatusCode::NOT_FOUND, Json(body)).into_response()
 }

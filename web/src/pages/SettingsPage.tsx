@@ -474,6 +474,52 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
+      {/* ── 5. Responses API Context Cache ────────────────────────── */}
+      <Card className="border shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <Globe className="h-4 w-4 text-primary" />
+            <span>{t('settings.responsesStore')}</span>
+          </CardTitle>
+          <CardDescription className="text-xs">
+            {t('settings.responsesStoreDesc')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="set-store-cap" className="text-xs font-medium text-muted-foreground block mb-1.5">
+                {t('settings.storeCapacity')}
+              </label>
+              <Input
+                id="set-store-cap"
+                type="number"
+                value={config.ds_core.responses_store_capacity}
+                onChange={(e) =>
+                  update(['ds_core', 'responses_store_capacity'], Number(e.target.value))
+                }
+                className="font-mono text-xs"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="set-store-ttl" className="text-xs font-medium text-muted-foreground block mb-1.5">
+                {t('settings.storeTtl')}
+              </label>
+              <Input
+                id="set-store-ttl"
+                type="number"
+                value={config.ds_core.responses_store_ttl_secs}
+                onChange={(e) =>
+                  update(['ds_core', 'responses_store_ttl_secs'], Number(e.target.value))
+                }
+                className="font-mono text-xs"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* ── Floating Action Bar (Docked to Bottom of Viewport, Appears Only When Header Actions Are Scrolled Out of View) ── */}
       <div
         className={cn(

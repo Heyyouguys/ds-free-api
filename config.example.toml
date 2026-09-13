@@ -93,6 +93,19 @@ port = 22217
 # tool_call.extra_starts = ["<|tool_call_begin|>", "<tool_calls>", "<tool_call>"]
 # tool_call.extra_ends = ["<|tool_call_end|>", "</tool_calls>", "</tool_call>"]
 
+# ── Responses API 上下文缓存（POST /v1/responses）──────────────────────
+#
+# OpenAI Responses API 用 `previous_response_id` 维持多轮上下文。
+# 本代理是无状态网关，无法像 OpenAI 那样长期保存响应，因此使用
+# **进程内、有界、带 TTL** 的缓存来支撑该参数：
+#   - 仅在请求未显式设置 store = false 时写入
+#   - 超过容量或 TTL 后条目被淘汰，此后引用该 ID 会返回 400
+#   - 客户端若需要跨重启的稳定上下文，应每轮都重放完整 input
+#
+# 每条缓存只保存一轮的 output 数组（通常几 KB）。
+# responses_store_capacity = 256    # 最多保存多少轮（默认 256）
+# responses_store_ttl_secs = 3600   # 条目存活秒数（默认 3600）
+
 # Admin 配置（由管理面板自动管理，部署时无需手动填写）
 # [admin]
 # password_hash = ""

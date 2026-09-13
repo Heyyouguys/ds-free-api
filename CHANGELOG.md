@@ -4,6 +4,120 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-09-13
+
+新增 OpenAI Responses API 端点，并按上游规范逐条核对了 Chat Completions 与
+Anthropic Messages 的实现；同时补齐 CI/CD 契约、前后端联调契约与测试基线。
+
+### Added
+
+- **`POST /v1/responses`（OpenAI Responses API）**：新建 `src/responses_adapter/`
+  （`types.rs` / `request.rs` / `response.rs` / `store.rs`），纯协议翻译层，不直接访问 `ds_core`
+  - `input` 支持字符串与输入项数组：`message`（含省略 `type` 的形态）、
+    `function_call`、`function_call_output`、`item_reference`
+  - `instructions` 支持字符串与 `input_text` 数组两种形态；`developer` 角色降级为 `system`
+  - 工具支持扁平 Responses 结构与嵌套 Chat Completions 结构；`web_search_preview` 触发搜索模式
+  - `text.format`（`json_object` / `json_schema`）→ `response_format`
+  - 非流式返回完整 Response 对象（`output` / `output_text` / `usage` 等字段名与规范一致）
+  - 流式逐事件输出：`response.created` → `response.in_progress` →
+    `response.output_item.added` → `response.content_part.added` /
+    `response.reasoning_summary_part.added` → `response.output_text.delta` /
+    `response.function_call_arguments.delta` / `response.reasoning_summary_text.delta` →
+    `*.done` → `response.output_item.done` → `response.completed`（或
+    `response.incomplete` / `response.failed`）→ `data: [DONE]`；
+    每个事件都带与 `event:` 同名的 `type` 与单调递增的 `sequence_number`
+  - `previous_response_id`：进程内、有界、带 TTL 的上下文缓存；容量/TTL 由
+    `responses_store_capacity`（默认 256）与 `responses_store_ttl_secs`（默认 3600）控制；
+    引用未知/过期 ID 返回 400（而非 500）
+- **`docs/responses-api.md`**：Responses API 字段表、事件序列、`previous_response_id`
+  取舍说明与未实现清单
+- **`docs/compat-audit.md`**：对照 `openai-openapi` / `openai-python` /
+  `anthropic-sdk-typescript` / docs.anthropic.com 的兼容性审计（已修复项、确认合规项、
+  有意未实现项、客户端互操作矩阵）
+- **`deny.toml`**：cargo-deny 许可证白名单、禁用 crate（`openssl-sys` / `native-tls`）与
+  registry 来源校验
+- **`scripts/check-lint-exemptions.sh`**：把 AGENTS.md 的「除 `client.rs` 外禁止 `#[allow]`」
+  与「日志必须为英文」两条约定变成 CI 可执行检查
+- **`web/scripts/check-locales.mjs`**：三个 locale 文件键集一致性检查（`bun run check:locales`）
+- **`py-e2e-tests/test_responses.py`**（`just e2e-responses`）：Responses API 端到端测试
+  —— 非流式/流式、工具调用、`previous_response_id` 多轮、错误信封
+- **HTTP 层集成测试**（`src/server.rs`）：用 `tower::ServiceExt::oneshot` 驱动 axum Router，
+  覆盖鉴权中间件、两种错误信封、CORS 白名单行为（新增 `tower` dev-dependency）
+- **前后端契约测试**（`src/server/admin.rs`）：直接解析 `web/src/lib/api.ts` 的 TS interface，
+  断言 `GET /admin/api/config` 的 JSON 包含前端声明的每个字段
+- **Responses API 单元测试**：45 个用例覆盖请求映射、事件顺序、`sequence_number` 单调性、
+  usage 延迟发出、`length → incomplete`、上游错误 → `response.failed`、缓存容量/TTL/克隆共享
+
+### Fixed
+
+- **Anthropic 端点无法用 Anthropic SDK / Claude Code 鉴权（BLOCKER）**：`extract_bearer_token()`
+  只读 `Authorization: Bearer`，而 Anthropic 官方 SDK 默认发 **`x-api-key`**。
+  新增 `extract_api_token()`：优先 Bearer，回退 `x-api-key`
+- **Anthropic 错误信封结构错误**：原实现把 error kind 放在顶层 `type`，正确形态是
+  `{"type":"error","error":{"type":...,"message":...}}`。Anthropic SDK 依赖
+  `error.error.type` 分派错误类，结构不符会退化成无法识别的 `APIError`。
+  `/anthropic/*` 的 401/404 现在也返回 Anthropic 信封（`/v1/*` 仍返回 OpenAI 信封）
+- **Chat Completions 的 `obfuscation` 字段位置错误**：规范中它是 **chunk 顶层字段**
+  （`CreateChatCompletionStreamResponse.obfuscation`），原实现放在 `choices[].delta.obfuscation`，
+  严格按 schema 反序列化的客户端会因未知字段报错
+- **未请求 usage 时提前下发 usage**：`stream_options.include_usage` 为 false 时，
+  原实现仍在 role chunk 上附带 `usage`；规范要求此时整个流不含 usage
+- **OpenAI 错误响应缺少 `param` 字段**：`Error` schema 要求
+  `type` / `message` / `param` / `code` 四字段齐备
+- **Anthropic `stop_reason` 可能输出非法枚举值**：`length` / `content_filter` 被原样透传，
+  现在映射为 `max_tokens` / `refusal`，未知取值告警并退化为 `end_turn`；
+  非流式响应在无 `finish_reason` 时也保证 `stop_reason` 非空
+- **`/v1/models` 缺少裸 model_type 名**：`model_registry()` 接受 `default`（issue #99），
+  但模型列表只输出 `deepseek-default`，客户端拉取列表后仍找不到可用模型
+- **非流式 `finish_reason` 可能为 `null`**：上游 EOF 未给 finish_reason 时退化为 `stop`
+- **RepairStream 心跳伪造空 tool_call**：工具修复等待期间的空 `tool_calls`
+  会被客户端按 index 累积成新的空工具调用（issue #87 的同类症状）
+- **请求解析错误提示重复前缀**：输出 `bad request: bad request: ...`，现在为
+  `bad request: invalid JSON body: ...`
+- **管理面板配置页无法编辑 `input_character_limits`**：该数组参与
+  `Config::validate()` 的长度校验，但前端既不展示也不同步；增删模型类型时
+  `max_input_tokens` / `max_output_tokens` / `input_character_limits` / `model_aliases`
+  会与 `model_types` 长度失配，导致保存被后端拒绝
+- **`GET /admin/api/config` 缺少 `responses_store_capacity` / `responses_store_ttl_secs`**：
+  新配置项未出现在管理接口中，前端设置页无法读取或保存
+- **`normalizeConfig()` 默认值与后端不一致**：前端兜底默认值（`2.0.4` / `2.0.4` 客户端版本）
+  与 `src/config.rs` 的 `default_*` 不同，会把过期版本号写回服务端；
+  且 `input_character_limits` 为空数组时未按 `model_types` 长度补齐
+- **Service Worker 缓存策略导致发版后页面不更新**：原实现对所有静态资源（含 `index.html`）
+  使用 stale-while-revalidate，用户会持续拿到旧 bundle；导航请求改为 network-first，
+  离线时回退缓存
+
+### Changed
+
+- **`.github/workflows/release.yml` 新增 `verify` 门禁**：在任何交叉编译开始前校验
+  tag 与 `Cargo.toml` / `ds_core/Cargo.toml` / `web/package.json` 一致、`CHANGELOG.md`
+  存在对应条目，并运行完整测试套件；平台构建全部改为 `cargo build --release --locked`；
+  Docker 构建开启 `provenance` 与 `sbom`；`permissions` 收敛为按需授予
+- **`.github/workflows/ci.yml` 重构**：新增 `changes` 路径门禁（文档-only 改动跳过 Rust 作业）与
+  `concurrency` 取消策略；`check` / `test` / `security` 三个独立作业；
+  工具安装改用 `taiki-e/install-action`；`cargo check/clippy/fmt` 全部覆盖 `--all-targets`；
+  新增 cargo-deny 许可证/来源校验、lint 豁免门禁与 i18n 键集门禁
+- **日志消息统一为英文**（`docs/logging-spec.md` 的既有约定此前未落地）：52 条中文日志
+  改为英文，并由 `scripts/check-lint-exemptions.sh` 持续检查
+- `docs/logging-spec.md` 补充 `responses_adapter` / `config` / `store` / `stats` 的 target 映射
+- `config.example.toml` 补充 Responses API 上下文缓存的配置说明
+- `README.md` / `README.en.md` 更新为「三协议支持」，端点表加入 `/v1/responses`
+- `AGENTS.md` 补充 Responses API 层、新 CI 流程、前后端配置契约与新增检查脚本
+
+### 测试结果
+
+- `cargo test --workspace --all-targets`：**198 passed / 0 failed**（v0.2.11 为 132）
+- `cargo clippy --all-targets -- -D warnings`、`cargo fmt --all --check`：通过
+- `bun run typecheck` / `bun run lint` / `bun run check:locales` / `bun run build`：通过
+- 实机验证（真实账号，账号因上游 `user is muted` 无法完成推理）：
+  - `/v1/responses` 参数校验全部返回 400 + OpenAI 错误信封（含 `param` 字段）；
+    账号池不可用时返回 429 + `retry-after: 30`
+  - `/anthropic/v1/messages` 携带 `x-api-key` 可通过鉴权；缺凭据时返回
+    `{"type":"error","error":{"type":"authentication_error",...}}`
+  - `/anthropic/v1/models/nope` 返回 404 + Anthropic `not_found_error` 信封
+  - `/v1/models` 同时列出 `deepseek-default` 与 `default`；`/v1/models/default` 可查询
+  - 管理面板配置的读取 / 修改 / 回写全链路验证（`responses_store_capacity` 由 256 改为 64 并落盘）
+
 ## [0.2.11] - 2026-09-13
 
 依据抓取到的上游实际配置做精简，并修复 issue #99 / #87 / #76。

@@ -12,12 +12,70 @@ on:
         type: string
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
 
 jobs:
 
+  # ── 发布门禁：标签与版本一致 + 全量测试通过，才允许开始构建 ────────
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify version matches Cargo.toml, ds_core and web/package.json
+        run: |
+          CARGO_VERSION=$(grep '^version =' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          CORE_VERSION=$(grep '^version =' ds_core/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          WEB_VERSION=$(grep '"version"' web/package.json | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          TAG="${{ steps.meta.outputs.tag }}"
+          TAG_VERSION="${TAG#v}"
+          status=0
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "✗ Cargo.toml version=$CARGO_VERSION 与 tag=$TAG_VERSION 不一致"
+            status=1
+          fi
+          if [ "$CORE_VERSION" != "$TAG_VERSION" ]; then
+            echo "✗ ds_core/Cargo.toml version=$CORE_VERSION 与 tag=$TAG_VERSION 不一致"
+            status=1
+          fi
+          if [ "$WEB_VERSION" != "$TAG_VERSION" ]; then
+            echo "✗ web/package.json version=$WEB_VERSION 与 tag=$TAG_VERSION 不一致"
+            status=1
+          fi
+          # CHANGELOG 必须存在对应条目，否则 release notes 会为空
+          if ! grep -q "^## \[$TAG_VERSION\]" CHANGELOG.md; then
+            echo "✗ CHANGELOG.md 缺少 [$TAG_VERSION] 条目"
+            status=1
+          fi
+          exit $status
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ libclang-dev
+      - name: Run full test suite against the tagged commit
+        run: cargo test --workspace --all-targets
+
   build-frontend:
+    needs: [verify]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -73,7 +131,7 @@ jobs:
         if: ${{ matrix.runner == 'ubuntu-24.04-arm' }}
         run: sudo apt-get update && sudo apt-get install -y build-essential cmake pkg-config g++
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
       - name: Package
         run: |
           name="ds-free-api-${{ steps.meta.outputs.tag }}-${{ matrix.suffix }}"
@@ -148,7 +206,7 @@ jobs:
           echo "/opt/${{ matrix.package }}/bin/" >> "$GITHUB_PATH"
       - name: Build
         env: ${{ matrix.custom_env }}
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
       - name: Package
         run: |
           name="ds-free-api-${{ steps.meta.outputs.tag }}-${{ matrix.suffix }}"
@@ -198,7 +256,7 @@ jobs:
           brew update
           brew install --formula cmake pkg-config llvm
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
       - name: Package
         run: |
           name="ds-free-api-${{ steps.meta.outputs.tag }}-${{ matrix.suffix }}"
@@ -253,7 +311,7 @@ jobs:
           choco install llvm -y
           choco install nasm -y
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
       - name: Package
         shell: pwsh
         run: |
@@ -275,6 +333,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v6
 
@@ -319,13 +378,17 @@ jobs:
           file: docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: true
+          sbom: true
           tags: |
             ghcr.io/${{ steps.docker_meta.outputs.owner }}/ds-free-api:${{ steps.meta.outputs.tag }}
             ghcr.io/${{ steps.docker_meta.outputs.owner }}/ds-free-api:latest
 
   release:
-    needs: [build-linux-gnu, build-linux-musl, build-macos, build-windows]
+    needs: [verify, build-linux-gnu, build-linux-musl, build-macos, build-windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -338,16 +401,6 @@ jobs:
             echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Verify version matches Cargo.toml
-        run: |
-          CARGO_VERSION=$(grep '^version =' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          TAG="${{ steps.meta.outputs.tag }}"
-          TAG_VERSION="${TAG#v}"
-          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
-            echo "Mismatch: Cargo.toml version=$CARGO_VERSION, tag=$TAG_VERSION"
-            exit 1
           fi
 
       - name: Extract changelog

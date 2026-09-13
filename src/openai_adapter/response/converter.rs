@@ -44,6 +44,7 @@ pub(crate) fn make_chunk(
         usage: None,
         service_tier: None,
         system_fingerprint: None,
+        obfuscation: None,
     }
 }
 
@@ -155,7 +156,7 @@ where
                 Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
                 Poll::Ready(None) => {
                     if !*this.finished {
-                        warn!(target: "adapter", "转换器流提前结束: model={}", this.model);
+                        warn!(target: "adapter", "converter stream ended early: model={}", this.model);
                     }
                     return Poll::Ready(None);
                 }

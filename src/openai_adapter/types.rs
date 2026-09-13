@@ -443,6 +443,10 @@ pub struct ChatCompletionsResponseChunk {
     pub service_tier: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_fingerprint: Option<String>,
+    /// 侧信道缓解用的随机填充，**顶层字段**（对齐 OpenAI：
+    /// `CreateChatCompletionStreamResponse.obfuscation`，不在 `delta` 内）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub obfuscation: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -472,8 +476,6 @@ pub struct Delta {
     pub function_call: Option<FunctionCall>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub obfuscation: Option<String>,
 }
 
 /// Token 用量

@@ -23,7 +23,7 @@
 ## 项目亮点
 
 - **零成本 API 代理**：使用 DeepSeek 免费网页端，无需官方 API Key，即可获得 OpenAI / Anthropic 兼容接口
-- **双协议支持**：同时兼容 OpenAI Chat Completions 与 Anthropic Messages API，主流客户端即插即用
+- **三协议支持**：同时兼容 OpenAI Chat Completions、OpenAI Responses（`/v1/responses`）与 Anthropic Messages API，主流客户端即插即用
 - **工具调用就绪**：OpenAI function calling 完整实现，工具解析 + 三层自修复管道（文本修复 → JSON 修复 → 模型兜底），覆盖 10+ 异常格式
 - **文件上传就绪**：支持 OpenAI `file` / `image_url` content part 和 Anthropic `image` / `document` content block 的内联 data URL 文件自动上传到 DeepSeek 会话；
   HTTP URL 自动触发搜索模式，模型可直接访问链接内容
@@ -108,6 +108,7 @@ Compose 配置见 [docker/docker-compose.yaml](./docker/docker-compose.yaml)。
 | GET  | `/`   | 重定向到管理面板 |
 | GET  | `/health` | 健康检查 |
 | POST | `/v1/chat/completions` | 聊天补全（支持流式与工具调用） |
+| POST | `/v1/responses` | OpenAI Responses API（流式 + 工具调用 + `previous_response_id`） |
 | GET  | `/v1/models` | 模型列表 |
 | GET  | `/v1/models/{id}` | 模型详情 |
 | POST | `/anthropic/v1/messages` | Anthropic Messages（支持流式与工具调用） |

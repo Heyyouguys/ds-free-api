@@ -25,6 +25,7 @@ use crate::config::Config;
 use crate::openai_adapter::{
     ChatCompletionsRequest, ChatOutput, OpenAIAdapter, OpenAIAdapterError,
 };
+use crate::responses_adapter::{ResponsesAdapter, ResponsesOutput, ResponsesRequest};
 
 use super::auth::LoginLimiter;
 use super::error::ServerError;
@@ -132,6 +133,9 @@ fn next_request_id() -> String {
 
 const X_DS_ACCOUNT: &str = "x-ds-account";
 
+/// Anthropic 规范建议每个响应携带本次请求 ID
+const ANTHROPIC_REQUEST_ID: &str = "request-id";
+
 /// 脱敏账号 ID：邮箱/手机号只保留前 3 字符 + ***
 fn mask_account_id(id: &str) -> String {
     if id.len() <= 3 {
@@ -146,6 +150,7 @@ fn mask_account_id(id: &str) -> String {
 pub(crate) struct AppState {
     pub(crate) adapter: Arc<OpenAIAdapter>,
     pub(crate) anthropic_compat: Arc<AnthropicCompat>,
+    pub(crate) responses_adapter: Arc<ResponsesAdapter>,
     pub(crate) stats: Arc<Stats>,
     pub(crate) config: Arc<tokio::sync::RwLock<Config>>,
     pub(crate) store: Arc<StoreManager>,
@@ -212,7 +217,7 @@ pub(crate) async fn chat_completions(
     let timer = super::stats::RequestTimer::new(&state.stats);
     let timer_start = std::time::Instant::now();
     let req: ChatCompletionsRequest = serde_json::from_slice(&body)
-        .map_err(|e| OpenAIAdapterError::BadRequest(format!("bad request: {}", e)))?;
+        .map_err(|e| OpenAIAdapterError::BadRequest(format!("invalid JSON body: {e}")))?;
     log::debug!(target: "http::request", "req={} POST /v1/chat/completions stream={}", request_id, req.stream);
     let model = req.model.clone();
 
@@ -294,6 +299,112 @@ pub(crate) async fn chat_completions(
     }
 }
 
+/// POST /v1/responses
+///
+/// OpenAI Responses API。流式返回 `text/event-stream`（`event: <type>` +
+/// `data: <json>`），非流式返回 Response 对象。
+pub(crate) async fn responses(
+    State(state): State<AppState>,
+    ApiKey(api_key): ApiKey,
+    body: Bytes,
+) -> Result<Response, ServerError> {
+    let request_id = next_request_id();
+    let timer = super::stats::RequestTimer::new(&state.stats);
+    let timer_start = std::time::Instant::now();
+    let req: ResponsesRequest = serde_json::from_slice(&body)
+        .map_err(|e| OpenAIAdapterError::BadRequest(format!("invalid JSON body: {e}")))?;
+    log::debug!(
+        target: "http::request",
+        "req={} POST /v1/responses stream={}", request_id, req.stream
+    );
+    let model = req.model.clone();
+
+    let result = state.responses_adapter.create(req, &request_id).await;
+    match &result {
+        Ok(_) => timer.mark_success(),
+        Err(_) => timer.mark_failure(),
+    };
+    let result = result?;
+
+    match result.data {
+        ResponsesOutput::Stream(stream) => {
+            let prompt_tokens = u64::from(result.prompt_tokens);
+            let completion_tokens = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let ct_ref = completion_tokens.clone();
+            use futures::StreamExt;
+            // Responses 的 usage 落在 `response.completed` 事件里，从 SSE 文本中提取
+            let sse = stream.inspect(move |chunk| {
+                if let Ok(bytes) = chunk
+                    && let Ok(text) = std::str::from_utf8(bytes)
+                    && text.contains("\"output_tokens\"")
+                    && let Some(ct) = extract_output_tokens(text)
+                {
+                    ct_ref.store(ct, std::sync::atomic::Ordering::Relaxed);
+                }
+            });
+            let elapsed = timer_start.elapsed();
+            let latency_ms = elapsed.as_secs() * 1000 + u64::from(elapsed.subsec_millis());
+            let guarded = TokenGuardStream {
+                inner: sse,
+                _guard: TokenGuard {
+                    stats: state.stats.clone(),
+                    prompt_tokens,
+                    completion_tokens,
+                    model: model.clone(),
+                    api_key: api_key.clone(),
+                    request_id: request_id.clone(),
+                    latency_ms,
+                    success: true,
+                },
+            };
+            log::debug!(target: "http::response", "req={} 200 Responses SSE started", request_id);
+            Ok(SseBody::new(guarded)
+                .with_header(X_DS_ACCOUNT, &mask_account_id(&result.account_id))
+                .with_header("openai-processing-ms", &latency_ms.to_string())
+                .into_response())
+        }
+        ResponsesOutput::Json(json) => {
+            let pt = u64::from(result.prompt_tokens);
+            let ct = u64::from(json.usage.as_ref().map_or(0, |u| u.output_tokens));
+            let elapsed = timer_start.elapsed();
+            let latency_ms = elapsed.as_secs() * 1000 + u64::from(elapsed.subsec_millis());
+            state.record_request(RequestRecord {
+                request_id: &request_id,
+                model: &model,
+                api_key: &api_key,
+                prompt_tokens: pt,
+                completion_tokens: ct,
+                latency_ms,
+                success: true,
+            });
+            let bytes = serde_json::to_vec(&json).unwrap();
+            log::debug!(
+                target: "http::response",
+                "req={} 200 Responses JSON {} bytes", request_id, bytes.len()
+            );
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(X_DS_ACCOUNT, &mask_account_id(&result.account_id))
+                .header("openai-processing-ms", latency_ms.to_string())
+                .body(Body::from(bytes))
+                .unwrap()
+                .into_response())
+        }
+    }
+}
+
+/// 从 `response.completed` 的 SSE 文本中提取 `output_tokens`（仅用于统计）
+fn extract_output_tokens(text: &str) -> Option<u64> {
+    let key = "\"output_tokens\":";
+    let start = text.find(key)? + key.len();
+    let rest = text[start..].trim_start();
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    rest[..end].parse().ok()
+}
+
 /// GET /v1/models
 pub(crate) async fn list_models(State(state): State<AppState>) -> Response {
     log::debug!(target: "http::request", "GET /v1/models");
@@ -344,7 +455,7 @@ pub(crate) async fn anthropic_messages(
     let timer_start = std::time::Instant::now();
 
     let req: MessagesRequest = serde_json::from_slice(&body)
-        .map_err(|e| AnthropicCompatError::BadRequest(format!("bad request: {}", e)))?;
+        .map_err(|e| AnthropicCompatError::BadRequest(format!("invalid JSON body: {e}")))?;
     log::debug!(target: "http::request", "req={} POST /anthropic/v1/messages stream={}", request_id, req.stream);
     let model = req.model.clone();
 
@@ -394,6 +505,7 @@ pub(crate) async fn anthropic_messages(
             log::debug!(target: "http::response", "req={} 200 SSE stream started", request_id);
             Ok(SseBody::new(guarded)
                 .with_header(X_DS_ACCOUNT, &mask_account_id(&result.account_id))
+                .with_header(ANTHROPIC_REQUEST_ID, &request_id)
                 .into_response())
         }
         AnthropicOutput::Json(json) => {
@@ -416,6 +528,7 @@ pub(crate) async fn anthropic_messages(
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(X_DS_ACCOUNT, &mask_account_id(&result.account_id))
+                .header(ANTHROPIC_REQUEST_ID, &request_id)
                 .body(Body::from(bytes))
                 .unwrap()
                 .into_response())
@@ -444,7 +557,13 @@ pub(crate) async fn anthropic_get_model(
     log::debug!(target: "http::request", "GET /anthropic/v1/models/{}", id);
 
     state.anthropic_compat.get_model(&id).await.map_or_else(
-        || Err(ServerError::NotFound(id)),
+        // Anthropic 客户端只识别 Anthropic 形态的错误信封
+        || {
+            Ok(super::error::anthropic_not_found_error(&format!(
+                "model '{}' not found",
+                id
+            )))
+        },
         |model| {
             let bytes = serde_json::to_vec(&model).unwrap();
             log::debug!(target: "http::response", "200 JSON response {} bytes", bytes.len());

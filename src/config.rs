@@ -66,6 +66,12 @@ pub struct DsCoreSection {
     /// 工具调用标签配置（自定义回退标签）
     #[serde(default)]
     pub tool_call: ToolCallTagConfig,
+    /// Responses API `previous_response_id` 缓存条数上限（进程内，默认 256）
+    #[serde(default = "default_responses_store_capacity")]
+    pub responses_store_capacity: usize,
+    /// Responses API 上下文缓存存活秒数（默认 3600）
+    #[serde(default = "default_responses_store_ttl_secs")]
+    pub responses_store_ttl_secs: u64,
 }
 
 impl DsCoreSection {
@@ -208,6 +214,18 @@ fn default_input_character_limits() -> Vec<u32> {
     vec![2_621_440]
 }
 
+/// Responses API 上下文缓存条数上限
+///
+/// 每条缓存只保存一轮的 output 数组（通常几 KB），256 条约占用几 MB 内存。
+fn default_responses_store_capacity() -> usize {
+    256
+}
+
+/// Responses API 上下文缓存存活时间
+fn default_responses_store_ttl_secs() -> u64 {
+    3600
+}
+
 fn default_api_base() -> String {
     "https://chat.deepseek.com/api/v0".to_string()
 }
@@ -325,7 +343,7 @@ impl Config {
                 }
             }
             default.save(&path)?;
-            log::info!(target: "config", "已创建默认配置文件: {}", path.display());
+            log::info!(target: "config", "created default config file: {}", path.display());
             return Ok((default, path));
         }
 
@@ -409,6 +427,8 @@ impl Default for DsCoreSection {
             input_character_limits: default_input_character_limits(),
             model_aliases: Vec::new(),
             tool_call: ToolCallTagConfig::default(),
+            responses_store_capacity: default_responses_store_capacity(),
+            responses_store_ttl_secs: default_responses_store_ttl_secs(),
         }
     }
 }

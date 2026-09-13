@@ -32,6 +32,10 @@ Format: `crate::module` or `crate::module::submodule`
 | `anthropic_compat::models` | `anthropic_compat::models` | Anthropic model list |
 | `anthropic_compat::response::stream` | `anthropic_compat::response::stream` | Anthropic streaming response conversion |
 | `anthropic_compat::response::aggregate` | `anthropic_compat::response::aggregate` | Anthropic non-streaming response aggregation |
+| `responses_adapter` | `responses_adapter` | Responses API request mapping, SSE state machine, `previous_response_id` cache |
+| `config` | `config` | Config load/save |
+| `store` | `store` | stats.json load/persist |
+| `stats` | `stats` | Stats counters |
 | `server` | `http::server` | Server lifecycle (startup, shutdown signals) |
 | `server::handlers` | `http::request` / `http::response` | HTTP request summary (path, stream flag), response summary (status, bytes) |
 | `server::error` | `http::response` | HTTP error response (status, error message) |
@@ -203,6 +207,9 @@ RUST_LOG=error just serve
 # Trace the full SSE pipeline
 RUST_LOG=adapter=trace,ds_core::accounts=debug,info just serve
 
+# Trace the Responses API pipeline (event state machine + previous_response_id cache)
+RUST_LOG=responses_adapter=trace,adapter=debug,info just serve
+
 # Focus on rate limiting and request tracing
 RUST_LOG=ds_core::accounts=debug,adapter=warn just serve
 
@@ -217,3 +224,14 @@ RUST_LOG=debug just serve 2> server.log
 - ❌ Logging sensitive information (tokens, passwords, API keys)
 - ❌ High-frequency TRACE logs enabled by default (each SSE byte, tight loops)
 - ❌ Chinese text in log messages — all logs must be in English
+
+## Enforcement
+
+`scripts/check-lint-exemptions.sh` and the `check` CI job enforce the conventions
+that can be checked mechanically:
+
+```bash
+# 中文日志检查（本文件「Prohibited Practices」最后一条）
+grep -rn --include='*.rs' -P '(info|warn|error|debug|trace)!\\([^)]*[\x{4e00}-\x{9fff}]' src ds_core/src
+# 期望输出为空
+```

@@ -75,26 +75,26 @@ impl StoreManager {
                 Ok(content) if !content.trim().is_empty() => {
                     match serde_json::from_str::<StatsStore>(&content) {
                         Ok(s) => {
-                            info!(target: "store", "已加载 stats.json");
+                            info!(target: "store", "loaded stats.json");
                             s
                         }
                         Err(e) => {
-                            warn!(target: "store", "stats.json 解析失败: {}，使用零值", e);
+                            warn!(target: "store", "failed to parse stats.json: {}, using zeros", e);
                             StatsStore::default()
                         }
                     }
                 }
                 Ok(_) => {
-                    info!(target: "store", "stats.json 为空，使用零值");
+                    info!(target: "store", "stats.json is empty, using zeros");
                     StatsStore::default()
                 }
                 Err(e) => {
-                    warn!(target: "store", "stats.json 读取失败: {}，使用零值", e);
+                    warn!(target: "store", "failed to read stats.json: {}, using zeros", e);
                     StatsStore::default()
                 }
             }
         } else {
-            info!(target: "store", "stats.json 不存在，使用零值");
+            info!(target: "store", "stats.json not found, using zeros");
             StatsStore::default()
         };
 

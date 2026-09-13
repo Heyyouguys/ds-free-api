@@ -28,7 +28,7 @@ use crate::openai_adapter::{
     OpenAIAdapterError,
     types::{
         ChatCompletionsResponse, ChatCompletionsResponseChunk, Choice, ChunkChoice, Delta,
-        FunctionCall, MessageResponse, ToolCall, Usage,
+        MessageResponse, ToolCall, Usage,
     },
 };
 
@@ -258,13 +258,16 @@ impl Stream for RepairStream {
                         ))));
                     }
                     Poll::Ready(Err(e)) => {
-                        warn!(target: "adapter", "tool_calls 修复失败: {}", e);
+                        warn!(target: "adapter", "tool_calls repair failed: {}", e);
                         *this.state = RepairState::RepairFailed(format!("修复失败: {}", e));
                         continue;
                     }
                     Poll::Pending => {
                         if this.keepalive_deadline.as_mut().poll(cx).is_ready() {
-                            trace!(target: "adapter", ">>> keepalive(repair): 发送空工具增量");
+                            // 修复期间的心跳不得伪造 tool_call：客户端会按 index/id
+                            // 累积，把空调用当成新工具调用（issue #87）。
+                            // 空 delta 是协议合法的 no-op，客户端会忽略。
+                            trace!(target: "adapter", ">>> keepalive(repair): 发送空 delta 心跳");
                             this.keepalive_deadline
                                 .as_mut()
                                 .reset(tokio::time::Instant::now() + KEEPALIVE_INTERVAL);
@@ -275,25 +278,14 @@ impl Stream for RepairStream {
                                 model: this.model.clone(),
                                 choices: vec![ChunkChoice {
                                     index: 0,
-                                    delta: Delta {
-                                        tool_calls: Some(vec![ToolCall {
-                                            id: String::new(),
-                                            ty: "function".into(),
-                                            function: Some(FunctionCall {
-                                                name: String::new(),
-                                                arguments: String::new(),
-                                            }),
-                                            custom: None,
-                                            index: 0,
-                                        }]),
-                                        ..Default::default()
-                                    },
+                                    delta: Delta::default(),
                                     finish_reason: None,
                                     logprobs: None,
                                 }],
                                 usage: None,
                                 service_tier: None,
                                 system_fingerprint: None,
+                                obfuscation: None,
                             })));
                         }
                         return Poll::Pending;
@@ -386,9 +378,7 @@ where
                         } else {
                             OBFUSCATION_MIN_PAD
                         };
-                        if let Some(choice) = chunk.choices.first_mut() {
-                            choice.delta.obfuscation = Some(random_padding(pad_len));
-                        }
+                        chunk.obfuscation = Some(random_padding(pad_len));
                     }
                     return Poll::Ready(Some(Ok(chunk)));
                 }
@@ -463,7 +453,7 @@ pub(crate) async fn aggregate<S>(
 where
     S: Stream<Item = Result<StreamEvent, ds_core::CoreError>> + Send + 'static,
 {
-    debug!(target: "adapter", "构建非流式响应: model={}, stop_count={}", model, cfg.stop.len());
+    debug!(target: "adapter", "building non-streaming response: model={}, stop_count={}", model, cfg.stop.len());
     let chunk_stream = stream(
         ds_stream,
         model.clone(),
@@ -536,10 +526,12 @@ where
     } else {
         Some(content)
     };
+    // OpenAI 的非流式响应总是给出 finish_reason；上游 EOF 未给时应退化为 `stop`
+    // 而不是序列化成 `null`，否则部分客户端会把它当成异常中断。
     let final_reason = if has_tool_calls {
         Some(FINISH_TOOL_CALLS)
     } else {
-        finish_reason
+        finish_reason.or(Some(FINISH_STOP))
     };
 
     let completion = ChatCompletionsResponse {
@@ -589,7 +581,9 @@ mod tests {
     use super::*;
 
     fn default_tag_config() -> Arc<TagConfig> {
-        Arc::new(TagConfig::from_config(&Default::default()))
+        Arc::new(TagConfig::from_config(
+            &crate::config::ToolCallTagConfig::default(),
+        ))
     }
 
     fn tool_span(content: &str) -> String {
@@ -610,33 +604,26 @@ mod tests {
         let mut has_content = false;
 
         for (content, frag_type) in pieces {
-            match *frag_type {
-                "THINK" => {
-                    if !has_think {
-                        events.push(StreamEvent::ThinkStart);
-                        has_think = true;
-                    }
-                    events.push(StreamEvent::ThinkDelta {
-                        content: content.to_string(),
-                    });
+            if *frag_type == "THINK" {
+                if !has_think {
+                    events.push(StreamEvent::ThinkStart);
+                    has_think = true;
                 }
-                _ => {
-                    if !has_content {
-                        events.push(StreamEvent::ContentStart);
-                        has_content = true;
-                    }
-                    events.push(StreamEvent::ContentDelta {
-                        content: content.to_string(),
-                    });
+                events.push(StreamEvent::ThinkDelta {
+                    content: content.to_string(),
+                });
+            } else {
+                if !has_content {
+                    events.push(StreamEvent::ContentStart);
+                    has_content = true;
                 }
+                events.push(StreamEvent::ContentDelta {
+                    content: content.to_string(),
+                });
             }
         }
 
-        let finish = if has_content {
-            Some("stop".to_string())
-        } else {
-            None
-        };
+        let finish = has_content.then(|| "stop".to_string());
         events.push(StreamEvent::Done {
             finish_reason: finish,
             accumulated_token_usage: usage_tokens,
@@ -709,7 +696,7 @@ mod tests {
             resp.choices[0].message.content.as_deref(),
             Some("中文回答完了\n")
         );
-        assert_eq!(resp.choices[0].finish_reason.as_deref(), Some("stop"));
+        assert_eq!(resp.choices[0].finish_reason, Some("stop"));
     }
 
     #[tokio::test]
@@ -757,6 +744,7 @@ mod tests {
             usage: None,
             service_tier: None,
             system_fingerprint: None,
+            obfuscation: None,
         }
     }
 
@@ -900,7 +888,7 @@ mod tests {
             .find(|c| c["usage"]["completion_tokens"].as_i64() == Some(12));
         assert!(usage_chunk.is_some(), "should have usage chunk");
         let finish_chunk = chunks.iter().rev().find(|c| {
-            c["choices"].as_array().map_or(false, |a| !a.is_empty())
+            c["choices"].as_array().is_some_and(|a| !a.is_empty())
                 && c["choices"][0]["finish_reason"].as_str().is_some()
         });
         assert_eq!(finish_chunk.unwrap()["choices"][0]["finish_reason"], "stop");
@@ -1198,12 +1186,12 @@ mod tests {
                 || c["choices"][0]["finish_reason"].as_str().is_some()
             {
                 assert!(
-                    c["choices"][0]["delta"]["obfuscation"].as_str().is_some(),
-                    "chunk with content or finish_reason should have obfuscation"
+                    c["obfuscation"].as_str().is_some(),
+                    "obfuscation 必须是 chunk 的顶层字段（OpenAI 规范），实际: {c}"
                 );
                 let len = serde_json::to_string(c).unwrap().len();
                 assert!(
-                    len >= 490 && len <= 530,
+                    (490..=530).contains(&len),
                     "chunk len {} out of expected 490..=530 range",
                     len
                 );

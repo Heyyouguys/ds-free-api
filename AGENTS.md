@@ -79,12 +79,19 @@ src/
 │       ├── stream.rs    # OpenAI SSE → Anthropic SSE events
 │       └── aggregate.rs # OpenAI JSON → Anthropic JSON
 │
+├── responses_adapter.rs # Facade: OpenAI Responses API translator (on top of openai_adapter)
+├── responses_adapter/   # Responses API submodules
+│   ├── types.rs         # ResponsesRequest, ResponseObject, usage, SSE serialization
+│   ├── request.rs       # Responses JSON → ChatCompletionsRequest mapping
+│   ├── response.rs      # Response object builder + SSE event state machine
+│   └── store.rs         # Bounded + TTL cache backing previous_response_id
+│
 ├── server.rs            # Facade: router, auth middleware, graceful shutdown
 ├── server/              # HTTP server submodules
 │   ├── admin.rs         # Admin panel route handlers
 │   ├── auth.rs          # JWT sign/verify, password setup/login, rate limiter
-│   ├── error.rs         # ServerError: API error JSON responses
-│   ├── handlers.rs      # Business route handlers (OpenAI + Anthropic)
+│   ├── error.rs         # ServerError: OpenAI + Anthropic error envelopes
+│   ├── handlers.rs      # Business route handlers (OpenAI + Responses + Anthropic)
 │   ├── runtime_log.rs   # File log redirection (stdout → runtime.log)
 │   ├── stats.rs         # Request stats recording
 │   ├── store.rs         # StoreManager: delegates admin/keys to Config::save()
@@ -95,7 +102,7 @@ src/
 - `examples/adapter_cli.rs` + `examples/adapter_cli/` — debug CLI + JSON request samples
 - `py-e2e-tests/` — Python e2e test suite (uv-managed, JSON-driven scenarios)
 - `docker/Dockerfile` + `docker/docker-compose.yaml` — Docker deployment (ghcr.io image)
-- `docs/` — `code-style.md`（代码注释、命名、错误消息约定），`logging-spec.md`（日志级别、target、模块级过滤），`deepseek-prompt-injection.md`（DeepSeek 原生标签、工具调用注入策略），`development.md`（环境配置、首次启动、Release 构建）
+- `docs/` — `code-style.md`（代码注释、命名、错误消息约定），`logging-spec.md`（日志级别、target、模块级过滤），`deepseek-prompt-injection.md`（DeepSeek 原生标签、工具调用注入策略），`development.md`（环境配置、首次启动、Release 构建），`responses-api.md`（Responses API 协议实现说明），`compat-audit.md`（对照上游规范的兼容性审计）
 - `ds_core/raw-api-reference.md` — DeepSeek 后端 API 参考（端点、信封格式、SSE 增量协议、PoW、WAF 绕过）
 
 ### Binary / Library Split
@@ -113,7 +120,7 @@ Cargo resolves from the workspace root, so commands run from inside `ds_core/` w
 
 ### Facade Module Pattern
 
-`accounts.rs`, `chat.rs`, `openai_adapter.rs`, `server.rs`, `request.rs`, `response.rs`, `anthropic_compat.rs` are **facades**:
+`accounts.rs`, `chat.rs`, `openai_adapter.rs`, `server.rs`, `request.rs`, `response.rs`, `anthropic_compat.rs`, `responses_adapter.rs` are **facades**:
 - They declare submodules with `mod` (keeping implementation private)
 - They re-export only the minimal public interface via `pub use`
 - They sometimes contain `#[cfg(test)]` test modules
@@ -133,16 +140,33 @@ This means the file tree does not directly map to the public API. To understand 
 On tag push (`.github/workflows/release.yml`):
 
 ```
-build-frontend (bun install --frozen-lockfile + bun run build)
-  ├── build-linux-gnu (cargo build)    │
-  ├── build-linux-musl (cross/cargo)   │── release (tar.gz + zip)
-  ├── build-macos (cargo build)  │
-  └── build-windows (cargo build)│
-  └── docker (ghcr.io image)
+verify (tag == Cargo.toml == web/package.json, CHANGELOG entry exists, cargo test)
+  └── build-frontend (bun install --frozen-lockfile + bun run build)
+        ├── build-linux-gnu  (cargo build --locked) │
+        ├── build-linux-musl (cargo build --locked) │── release (tar.gz + zip + SHA256SUMS)
+        ├── build-macos      (cargo build --locked) │
+        └── build-windows    (cargo build --locked) │
+        └── docker (ghcr.io image, provenance + SBOM)
 ```
+
+`verify` is a **gate**: it fails fast (before any expensive cross-compilation) when the
+tag, `Cargo.toml`, `web/package.json` or `CHANGELOG.md` disagree, and it runs the full
+test suite against the tagged commit.
 
 `build-frontend` produces a `web-dist` artifact. Each platform build job downloads it
 before compiling Rust, so `rust_embed` embeds the real frontend assets.
+
+On PR/push (`.github/workflows/ci.yml`):
+
+```
+changes (paths-filter)
+  ├── build-frontend (typecheck + lint + i18n key-set gate + build)
+  ├── check          (check + clippy + fmt + audit + machete + outdated + lint-exemption gate)
+  └── test           (cargo test --workspace --all-targets + doc tests)
+  └── security       (cargo-deny: licences / banned crates / registry sources)
+```
+
+Documentation-only changes skip the Rust jobs via the `changes` gate.
 
 ### Frontend (`web/`)
 
@@ -181,13 +205,21 @@ Pages: `ConfigPage`, `DashboardPage`, `Layout`, `LoginPage`, `LogsPage`, `Models
 
 **Responsive + PWA**: the layout collapses to an icon rail on tablets and a bottom tab bar on
 mobile; `SplashScreen.tsx` covers initial hydration, and `public/sw.js` (registered from
-`index.html` under `/admin/`) caches static assets while passing `/admin/api/*` straight to the network.
+`index.html` under `/admin/`) uses network-first for navigations (so a new release is picked up
+immediately) and stale-while-revalidate for hashed static assets, while passing `/admin/api/*`
+straight to the network.
 
 **Admin panel config editor**: `ConfigPage.tsx` fetches from `GET /admin/api/config`,
 edits accounts / API keys / model types / tool-call tags and submits via `PUT /admin/api/config`
-(full replace + hot-reload); `SettingsPage.tsx` handles server / proxy / ds_core fields and
-admin password change. Passwords and `device_id` values sent as `***`/empty are merged with
-existing values server-side.
+(full replace + hot-reload); `SettingsPage.tsx` handles server / proxy / ds_core fields, the
+Responses API context cache, and admin password change. Passwords and `device_id` values sent
+as `***`/empty are merged with existing values server-side.
+
+Every index-aligned array (`max_input_tokens`, `max_output_tokens`, `input_character_limits`,
+`model_aliases`) must stay the same length as `model_types` — `Config::validate()` rejects
+mismatches. `normalizeConfig()` in `lib/api.ts` pads/truncates them defensively, and the
+add/delete handlers in `ConfigPage.tsx` update all five arrays together. Default values in
+the frontend must mirror `src/config.rs`'s `default_*` functions.
 
 **Dev mode (HMR)**: Run `cd web && bun run dev` (Vite HMR) alongside `just serve`.
 Backend reads from `web/dist/` filesystem when available.
@@ -330,6 +362,17 @@ fallback path in `ds_core/src/chat/request.rs`: `expert` uses chunked completion
 comes from `input_character_limits`, which upstream currently reports as 2621440 for all
 model types.
 
+### Responses API Layer
+
+Pure protocol translator on top of `openai_adapter` — no direct `ds_core` access:
+- Request: `Responses JSON → request::into_chat_completions() → OpenAIAdapter::chat_completions()`
+- Response: `ChatOutput::Stream → response::stream()` (SSE events) / `ChatOutput::Json → response::from_chat_completions()`
+- `previous_response_id`: in-process, bounded (capacity) + TTL cache in `store.rs`; the
+  cache is shared with the streaming response via a `FinishHook` invoked when the
+  final `output` array is known
+- Full protocol reference: `docs/responses-api.md`; compatibility audit:
+  `docs/compat-audit.md`
+
 ### Anthropic Compatibility Layer
 
 Pure protocol translator on top of `openai_adapter` — no direct `ds_core` access:
@@ -367,6 +410,7 @@ The `x-ds-account` HTTP response header carries the account identifier upstream.
 | `GET /` | `server::root` | Redirect to /admin |
 | `GET /health` | `server::health` | Health check (`{"status": "ok"}`) |
 | `POST /v1/chat/completions` | `handlers::chat_completions` | OpenAI chat completion |
+| `POST /v1/responses` | `handlers::responses` | OpenAI Responses API (SSE events or Response object) |
 | `GET /v1/models` | `handlers::list_models` | List models |
 | `GET /v1/models/{id}` | `handlers::get_model` | Get model |
 | `POST /anthropic/v1/messages` | `handlers::anthropic_messages` | Anthropic messages |
@@ -376,6 +420,14 @@ The `x-ds-account` HTTP response header carries the account identifier upstream.
 Bearer auth is **always enforced** on `/v1/*` and `/anthropic/*` via `[[api_keys]]`.
 If `api_keys` is empty no token can validate, so every API request returns
 `401 invalid_api_token` — create a key in the admin panel (or `[[api_keys]]`) first.
+
+Two credential headers are accepted:
+- `Authorization: Bearer <key>` — OpenAI SDK, and the Anthropic SDK's `authToken`
+- `x-api-key: <key>` — the Anthropic SDK's default (`apiKey`), used by Claude Code
+
+`/v1/*` and `/anthropic/*` use **separate middleware instances** so each returns the
+error envelope its clients expect: OpenAI `{"error":{type,message,param,code}}` vs
+Anthropic `{"type":"error","error":{type,message}}`.
 
 ### Model ID Mapping
 
@@ -423,7 +475,8 @@ Follow `docs/code-style.md`:
   - `ds_core::accounts`, `ds_core::client`
   - `adapter` (for `openai_adapter`)
   - `http::server`, `http::request`, `http::response` (for `server`)
-  - `anthropic_compat`, `anthropic_compat::models`, `anthropic_compat::request`, `anthropic_compat::response::stream`, `anthropic_compat::response::aggregate`
+  - `anthropic_compat`, `anthropic_compat::models`, `anthropic_compat::request`, `anthropic_compat::response`, `anthropic_compat::response::stream`, `anthropic_compat::response::aggregate`
+  - `responses_adapter` (Responses API mapping, SSE state machine, `previous_response_id` cache)
 - See `docs/logging-spec.md` for full target/level mapping
 
 ### Config
@@ -439,6 +492,9 @@ Follow `docs/code-style.md`:
 - All tests are inline (`#[cfg(test)]` within `src/` files). No separate `tests/` directory.
 - `request.rs` has sync unit tests for parsing logic
 - `response.rs` has `tokio::test` async tests for stream aggregation
+- `server.rs` has `#[cfg(test)]` HTTP-layer tests driven by `tower::ServiceExt::oneshot`
+  against stub routes (deterministic, no network). `tower` is a `[dev-dependency]`
+  for exactly this purpose; bodies are read with `axum::body::to_bytes`.
 - `println!`/`eprintln!` allowed inside `#[cfg(test)]` for debugging failures; prohibited in library code
 
 ## Anti-Patterns
@@ -491,6 +547,9 @@ Follow `docs/code-style.md`:
 | Tool call parser & stop sequences | `src/openai_adapter/response/tool_parser.rs` | `TagConfig` with extra_starts/extra_ends; stop filtering embedded |
 | Stream pipeline config | `src/openai_adapter/response.rs` | `StreamCfg` struct (consolidates 8 stream params) |
 | Anthropic compat layer | `src/anthropic_compat/` | Built on openai_adapter, no direct ds_core access |
+| Responses API layer | `src/responses_adapter/` | Request/response mapping, SSE event state machine, `previous_response_id` cache |
+| Responses API protocol reference | `docs/responses-api.md` | Field tables, event sequence, store trade-offs, unimplemented list |
+| Compatibility audit | `docs/compat-audit.md` | Verified spec deltas for Chat Completions / Anthropic / Responses |
 | Anthropic streaming response | `src/anthropic_compat/response/stream.rs` | OpenAI SSE → Anthropic SSE event stream |
 | Anthropic aggregate response | `src/anthropic_compat/response/aggregate.rs` | OpenAI JSON → Anthropic JSON |
 | OpenAI protocol types | `src/openai_adapter/types.rs` | Request/response structs, `#![allow(dead_code)]` |
@@ -503,9 +562,13 @@ Follow `docs/code-style.md`:
 | Scripted regression test | `just adapter-cli -- source examples/adapter_cli-script.txt` | Runs all JSON samples in sequence |
 | Docker deployment | `docker/Dockerfile` + `docker/docker-compose.yaml` | Pre-built ghcr.io image, bind mounts for config/data |
 | e2e scenario test framework | `py-e2e-tests/` | JSON-driven scenarios with checks |
-| CI pipeline | `.github/workflows/ci.yml` | `cargo check + clippy + fmt + audit + machete + outdated` + `cargo test` |
+| CI pipeline | `.github/workflows/ci.yml` | `changes` gate + `build-frontend` + `check` + `test` + `security` |
 | Dependency audit policy | `.cargo/audit.toml` | Documented upstream warnings that cannot be fixed here (wreq 5.x yanked, transitive lru unsound) |
+| Dependency licence/ban policy | `deny.toml` | cargo-deny: licence allow-list, banned crates, registry sources |
 | Outdated wrapper | `scripts/check-outdated.sh` | `cargo outdated` fails to resolve because wreq 5.x is yanked; script skips only that known case |
+| Lint exemption gate | `scripts/check-lint-exemptions.sh` | Enforces the "no `#[allow]` outside client.rs" rule in CI |
+| i18n key-set gate | `web/scripts/check-locales.mjs` | Fails CI when the three locale files diverge |
+| Responses e2e | `py-e2e-tests/test_responses.py` | `just e2e-responses` — streaming, tools, `previous_response_id`, error envelopes |
 | Release workflow | `.github/workflows/release.yml` | Tag `v*` → 8 targets, 4 platforms, CHANGELOG release |
 | Code style | `docs/code-style.md` | 注释、命名、错误消息约定 |
 | Logging spec | `docs/logging-spec.md` | 日志级别、目标、模块级过滤 |
@@ -555,6 +618,8 @@ cargo run --example adapter_cli -- -c /path/to/config.toml
 # Run specific test modules
 just test-adapter-request
 just test-adapter-response
+cargo test responses_adapter              # Responses API request/response/store tests
+cargo test server::                       # HTTP auth middleware + error envelope tests
 just test-adapter-request converter_emits_role_and_content -- --exact
 
 # Run a single Rust test (use -- --exact for precise name matching)
@@ -567,22 +632,26 @@ cargo test
 cargo test --lib
 
 # e2e tests (requires `uv`, server on port 22217)
-just e2e-basic    # Basic: 基础功能测试（OpenAI + Anthropic 双端点）
-just e2e-repair   # Repair: 工具调用损坏修复专项测试
-just e2e-stress   # Stress: 全部场景 × 3 次迭代压测
+just e2e-basic     # Basic: 基础功能测试（OpenAI + Anthropic 双端点）
+just e2e-repair    # Repair: 工具调用损坏修复专项测试
+just e2e-stress    # Stress: 全部场景 × 3 次迭代压测
+just e2e-responses # Responses: /v1/responses（流式 + 工具 + previous_response_id）
 # See docs/development.md for full e2e CLI parameters (filter, parallel, model, report, etc.)
 
 # Start server with e2e config
 just e2e-serve
 
 # Individual checks
-cargo check
-cargo clippy -- -D warnings
-cargo fmt --check
+cargo check --all-targets
+cargo clippy --all-targets -- -D warnings
+cargo fmt --all --check
 cargo audit        # requires: cargo install cargo-audit
 cargo machete      # requires: cargo install cargo-machete
+cargo deny --all-features check licenses bans sources   # requires: cargo install cargo-deny
 scripts/check-outdated.sh  # wraps `cargo outdated --exit-code 1 --root-deps-only`
                    # (skips only the known wreq-5.x-yank resolution failure)
+scripts/check-lint-exemptions.sh
+just check-web     # frontend typecheck + lint + i18n key-set gate + build
 
 # Build
 cargo build

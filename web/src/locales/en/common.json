@@ -166,7 +166,11 @@
     "engineTitle": "DeepSeek Engine Parameters",
     "engineDescription": "Official API endpoint, PoW WASM solver URL, and client headers",
     "unsavedChanges": "Unsaved settings changes",
-    "allSynced": "All settings synchronized"
+    "allSynced": "All settings synchronized",
+    "responsesStore": "Responses API Context Cache",
+    "responsesStoreDesc": "In-process cache backing previous_response_id. Entries are evicted after the TTL or when capacity is exceeded.",
+    "storeCapacity": "Cache Capacity",
+    "storeTtl": "TTL (seconds)"
   },
   "logs": {
     "title": "Logs",
@@ -227,7 +231,9 @@
     "helloMessage": "Hello, DeepSeek!",
     "curlComment": "# 1. Send Chat Completion Request (cURL)",
     "pythonComment": "# 2. Integration Using OpenAI Python SDK",
-    "nodeComment": "// 3. Integration Using OpenAI Node.js SDK"
+    "nodeComment": "// 3. Integration Using OpenAI Node.js SDK",
+    "responsesComment": "# 4. OpenAI Responses API",
+    "responsesNote": "Responses API also supports previous_response_id for multi-turn context."
   },
   "profile": {
     "role": "Administrator",

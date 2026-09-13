@@ -72,7 +72,7 @@ pub struct AnthropicModelList {
 
 /// 根据 OpenAI ModelList 生成 Anthropic 格式响应
 pub(crate) fn list(list: &OpenAIModelList) -> AnthropicModelList {
-    debug!(target: "anthropic_compat::models", "生成模型列表");
+    debug!(target: "anthropic_compat::models", "building model list");
 
     let data: Vec<AnthropicModel> = list.data.iter().map(to_anthropic_model).collect();
 

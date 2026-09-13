@@ -5,9 +5,51 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # 允许手动重跑，便于排查偶发失败
+  workflow_dispatch:
+
+# 同一分支的旧运行在新提交到达时取消，节省 CI 配额
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # 减少增量调试信息体积，加快 CI 中的链接
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
 
 jobs:
+  # ── 变更检测：文档-only 改动跳过 Rust 作业 ──────────────────────────
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'ds_core/**'
+              - 'web/**'
+              - 'examples/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - '.github/workflows/**'
+              - 'justfile'
+              - 'scripts/**'
+              - 'deny.toml'
+
   build-frontend:
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -15,17 +57,26 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: web/.bun-version
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('web/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
       - name: Install dependencies
         run: bun install --frozen-lockfile
         working-directory: web
       - name: Type check
         run: bun run typecheck
         working-directory: web
-      - name: Build frontend
-        run: bun run build
-        working-directory: web
       - name: Lint frontend
         run: bun run lint
+        working-directory: web
+      - name: Verify i18n locales have identical key sets
+        run: bun run check:locales
+        working-directory: web
+      - name: Build frontend
+        run: bun run build
         working-directory: web
       - name: Upload frontend artifact
         uses: actions/upload-artifact@v7
@@ -33,9 +84,11 @@ jobs:
           name: web-dist
           path: web/dist/
           if-no-files-found: error
+          retention-days: 7
 
   check:
-    needs: [build-frontend]
+    needs: [changes, build-frontend]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -51,19 +104,36 @@ jobs:
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake g++ libclang-dev
       - name: cargo check
-        run: cargo check
+        run: cargo check --all-targets
       - name: cargo clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
       - name: cargo fmt
-        run: cargo fmt --check
+        run: cargo fmt --all --check
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
       - name: cargo audit
-        run: command -v cargo-audit || cargo install cargo-audit --locked && cargo audit
+        run: cargo audit
+      - name: Install cargo-machete
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
       - name: cargo machete
-        run: command -v cargo-machete || cargo install cargo-machete --locked && cargo machete
+        run: cargo machete
+      - name: Check for disallowed lint exemptions
+        run: scripts/check-lint-exemptions.sh
+      - name: Install cargo-outdated
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-outdated
       - name: cargo outdated
-        run: command -v cargo-outdated || cargo install cargo-outdated --locked && scripts/check-outdated.sh
+        # wreq 5.x 全量 yank 会让 cargo-outdated 解析失败，由包装脚本跳过该已知情况
+        run: scripts/check-outdated.sh
+
   test:
-    needs: [build-frontend]
+    needs: [changes, build-frontend]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -76,5 +146,21 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake g++ libclang-dev
-      - name: cargo test
-        run: cargo test
+      - name: cargo test (workspace, all targets)
+        run: cargo test --workspace --all-targets
+      - name: cargo test (doc)
+        run: cargo test --doc --workspace
+
+  # ── 供应链与许可证检查（独立作业，失败不与编译检查混淆）────────────
+  security:
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: cargo deny (licenses / bans / sources)
+        run: cargo deny --all-features check licenses bans sources

@@ -18,12 +18,12 @@
 
 [中文](README.md)
 
-A Rust API proxy that translates DeepSeek's free web chat into standard OpenAI and Anthropic-compatible API protocols (supports chat completions and messages, including streaming and tool calling).
+A Rust API proxy that translates DeepSeek's free web chat into standard OpenAI and Anthropic-compatible API protocols (supports chat completions, the Responses API and messages, including streaming and tool calling).
 
 ## Highlights
 
 - **Zero-cost API proxy**: Uses DeepSeek's free web interface — no official API key needed, get OpenAI/Anthropic-compatible endpoints for free
-- **Dual protocol support**: Both OpenAI Chat Completions and Anthropic Messages API, drop-in compatible with mainstream clients
+- **Triple protocol support**: OpenAI Chat Completions, the OpenAI Responses API (`/v1/responses`) and the Anthropic Messages API — drop-in compatible with mainstream clients
 - **Tool call ready**: Full OpenAI function calling implementation with a 3-tier self-healing pipeline (text repair → JSON repair → model fallback), covering 10+ malformed formats
 - **File upload ready**: Inline data URL files in OpenAI `file`/`image_url` content parts and Anthropic `image`/`document` content blocks are automatically uploaded to DeepSeek sessions; HTTP URLs trigger search mode so the model can access link content directly
 - **Oversized prompt fallback**: When the prompt exceeds model limits, automatically falls back to chunked completion with file upload
@@ -109,6 +109,7 @@ so one value can be reused across multiple accounts and only needs to be capture
 | GET    | `/`   | Redirect to admin panel |
 | GET    | `/health` | Health check |
 | POST   | `/v1/chat/completions` | Chat completions (streaming + tool calls) |
+| POST   | `/v1/responses` | OpenAI Responses API (streaming + tools + `previous_response_id`) |
 | GET    | `/v1/models` | List models |
 | GET    | `/v1/models/{id}` | Model details |
 | POST   | `/anthropic/v1/messages` | Anthropic Messages (streaming + tool calls) |

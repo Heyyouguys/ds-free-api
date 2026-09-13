@@ -8,7 +8,7 @@ use crate::openai_adapter::types::{ChatCompletionsResponse, ToolCall};
 
 /// 将 OpenAI ChatCompletionsResponse 直接映射为 MessagesResponse
 pub fn from_chat_completions(resp: &ChatCompletionsResponse) -> MessagesResponse {
-    debug!(target: "anthropic_compat::response::aggregate", "开始映射非流式响应");
+    debug!(target: "anthropic_compat::response::aggregate", "mapping non-streaming response");
     let choice = resp.choices.first();
     let message = choice.map(|c| &c.message);
 
@@ -40,7 +40,11 @@ pub fn from_chat_completions(resp: &ChatCompletionsResponse) -> MessagesResponse
         }
     }
 
-    let stop_reason = choice.and_then(|c| c.finish_reason).map(finish_reason_map);
+    // Anthropic 的非流式响应 `stop_reason` 必须非空
+    let stop_reason = choice
+        .and_then(|c| c.finish_reason)
+        .map(finish_reason_map)
+        .or_else(|| Some("end_turn".to_string()));
 
     let usage = resp
         .usage
@@ -54,7 +58,7 @@ pub fn from_chat_completions(resp: &ChatCompletionsResponse) -> MessagesResponse
             output_tokens: 0,
         });
 
-    debug!(target: "anthropic_compat::response::aggregate", "映射完成: content_blocks={}", content.len());
+    debug!(target: "anthropic_compat::response::aggregate", "mapping done: content_blocks={}", content.len());
     MessagesResponse {
         id: map_id(&resp.id),
         ty: "message",
@@ -129,6 +133,45 @@ mod tests {
             service_tier: None,
             system_fingerprint: None,
         }
+    }
+
+    #[test]
+    fn openai_finish_reasons_map_to_valid_anthropic_values() {
+        // Anthropic StopReason 只允许
+        // end_turn | max_tokens | stop_sequence | tool_use | pause_turn | refusal
+        // | model_context_window_exceeded
+        let allowed = [
+            "end_turn",
+            "max_tokens",
+            "stop_sequence",
+            "tool_use",
+            "pause_turn",
+            "refusal",
+            "model_context_window_exceeded",
+        ];
+        for (openai, expected) in [
+            ("stop", "end_turn"),
+            ("tool_calls", "tool_use"),
+            ("length", "max_tokens"),
+            ("content_filter", "refusal"),
+            ("function_call", "tool_use"),
+        ] {
+            let mapped = finish_reason_map(openai);
+            assert_eq!(mapped, expected, "{openai} 应映射为 {expected}");
+            assert!(
+                allowed.contains(&mapped.as_str()),
+                "{mapped} 不是合法 stop_reason"
+            );
+        }
+        // 未知取值不得透传
+        assert_eq!(finish_reason_map("weird"), "end_turn");
+    }
+
+    #[test]
+    fn length_finish_reason_maps_to_max_tokens() {
+        let r = resp("x", "m", Some("cut"), None, None, Some("length"), None);
+        let msg = from_chat_completions(&r);
+        assert_eq!(msg.stop_reason.as_deref(), Some("max_tokens"));
     }
 
     #[test]
@@ -242,8 +285,7 @@ mod tests {
             msg.content[1],
             ResponseContentBlock::ToolUse { .. }
         ));
-        if let ResponseContentBlock::ToolUse { ref input, .. } =
-            msg.content[usize::from(msg.content.len() - 1)]
+        if let ResponseContentBlock::ToolUse { ref input, .. } = msg.content[msg.content.len() - 1]
         {
             assert_eq!(input["city"], "Beijing");
         }
@@ -325,6 +367,7 @@ mod tests {
         };
         let msg = from_chat_completions(&r);
         assert!(msg.content.is_empty());
-        assert_eq!(msg.stop_reason, None);
+        // 无 choices 时没有 finish_reason，退化为 end_turn（Anthropic 要求非空）
+        assert_eq!(msg.stop_reason.as_deref(), Some("end_turn"));
     }
 }

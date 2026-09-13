@@ -166,7 +166,11 @@
     "engineTitle": "DeepSeek 引擎参数",
     "engineDescription": "官方 API 端点、PoW WASM 求解器 URL 以及客户端标头",
     "unsavedChanges": "有未保存的设置更改",
-    "allSynced": "所有设置已同步"
+    "allSynced": "所有设置已同步",
+    "responsesStore": "Responses API 上下文缓存",
+    "responsesStoreDesc": "支撑 previous_response_id 的进程内缓存。超过 TTL 或容量上限后条目会被淘汰。",
+    "storeCapacity": "缓存容量",
+    "storeTtl": "存活秒数 (TTL)"
   },
   "logs": {
     "title": "日志",
@@ -227,7 +231,9 @@
     "helloMessage": "你好，DeepSeek！",
     "curlComment": "# 1. 发送对话完成请求（cURL）",
     "pythonComment": "# 2. 使用 OpenAI Python SDK 集成",
-    "nodeComment": "// 3. 使用 OpenAI Node.js SDK 集成"
+    "nodeComment": "// 3. 使用 OpenAI Node.js SDK 集成",
+    "responsesComment": "# 4. OpenAI Responses API",
+    "responsesNote": "Responses API 亦支持通过 previous_response_id 维持多轮上下文。"
   },
   "profile": {
     "role": "管理员",

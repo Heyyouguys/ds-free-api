@@ -311,7 +311,7 @@ impl Stats {
             let store = store.clone();
             tokio::spawn(async move {
                 if let Err(e) = store.save_stats(&st).await {
-                    log::warn!(target: "stats", "持久化失败: {}", e);
+                    log::warn!(target: "stats", "persist failed: {}", e);
                 }
             });
         }

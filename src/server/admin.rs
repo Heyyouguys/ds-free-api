@@ -68,6 +68,10 @@ pub struct DsCoreView {
     pub input_character_limits: Vec<u32>,
     pub model_aliases: Vec<String>,
     pub tool_call: ToolCallTagConfigView,
+    /// Responses API `previous_response_id` 缓存条数上限
+    pub responses_store_capacity: usize,
+    /// Responses API 上下文缓存存活秒数
+    pub responses_store_ttl_secs: u64,
 }
 
 #[derive(Serialize)]
@@ -145,6 +149,8 @@ fn mask_config(config: &Config) -> AdminConfigResponse {
                 extra_starts: config.ds_core.tool_call.extra_starts.clone(),
                 extra_ends: config.ds_core.tool_call.extra_ends.clone(),
             },
+            responses_store_capacity: config.ds_core.responses_store_capacity,
+            responses_store_ttl_secs: config.ds_core.responses_store_ttl_secs,
         },
         proxy: ProxyConfigView {
             url: config.proxy.url.clone(),
@@ -411,4 +417,164 @@ fn error_response(status: StatusCode, message: &str) -> Response {
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(bytes))
         .unwrap()
+}
+
+// ============================================================================
+// 前后端契约测试
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_config() -> Config {
+        toml::from_str(
+            r#"
+[server]
+host = "127.0.0.1"
+port = 22217
+cors_origins = ["http://localhost:22217"]
+
+[ds_core]
+api_base = "https://example.invalid/api/v0"
+wasm_url = "https://example.invalid/wasm.wasm"
+user_agent = "test-agent"
+client_version = "9.9.9"
+client_platform = "android"
+client_locale = "zh_CN"
+model_types = ["default"]
+max_input_tokens = [1048576]
+max_output_tokens = [384000]
+input_character_limits = [2621440]
+model_aliases = ["alias-a"]
+responses_store_capacity = 128
+responses_store_ttl_secs = 7200
+
+[[ds_core.accounts]]
+email = "a@example.com"
+mobile = ""
+area_code = ""
+password = "pw"
+device_id = "dev-1"
+
+[proxy]
+url = "http://127.0.0.1:7890"
+
+[[api_keys]]
+key = "sk-test"
+description = "test"
+"#,
+        )
+        .expect("sample config must parse")
+    }
+
+    /// 从 `web/src/lib/api.ts` 的 TS interface 中提取字段名
+    ///
+    /// 这是一个真实的**前后端契约测试**：后端序列化出的 JSON 必须包含
+    /// 前端 `FullConfig` 类型声明的每一个字段，否则前端只能靠 `??` 兜底，
+    /// 用户的自定义值会被默认值静默覆盖。
+    fn ts_interface_fields(source: &str, name: &str) -> Vec<String> {
+        let start = source
+            .find(&format!("export interface {name} {{"))
+            .unwrap_or_else(|| panic!("api.ts 中缺少 interface {name}"));
+        let rest = &source[start..];
+        let end = rest.find('}').expect("unterminated interface");
+        rest[..end]
+            .lines()
+            .skip(1)
+            .filter_map(|line| {
+                let line = line.trim();
+                if line.starts_with("//") || line.starts_with("/*") || line.starts_with('*') {
+                    return None;
+                }
+                let (field, _) = line.split_once(':')?;
+                let field = field.trim().trim_end_matches('?');
+                (!field.is_empty() && field.chars().all(|c| c.is_alphanumeric() || c == '_'))
+                    .then(|| field.to_string())
+            })
+            .collect()
+    }
+
+    const API_TS: &str = include_str!("../../web/src/lib/api.ts");
+
+    #[test]
+    fn admin_config_json_satisfies_frontend_ds_core_contract() {
+        let view = mask_config(&sample_config());
+        let json = serde_json::to_value(&view).expect("serialize admin config view");
+        let ds_core = json.get("ds_core").expect("ds_core key").clone();
+
+        for field in ts_interface_fields(API_TS, "DsCoreConfig") {
+            assert!(
+                ds_core.get(&field).is_some(),
+                "admin GET /admin/api/config 缺少前端 DsCoreConfig 声明的字段: {field}\n实际: {ds_core}"
+            );
+        }
+    }
+
+    #[test]
+    fn admin_config_json_satisfies_frontend_top_level_contract() {
+        let view = mask_config(&sample_config());
+        let json = serde_json::to_value(&view).expect("serialize admin config view");
+
+        // FullConfig 的标量与对象字段
+        for field in ["server", "ds_core", "proxy", "admin", "api_keys"] {
+            assert!(json.get(field).is_some(), "缺少顶层字段 {field}");
+        }
+
+        let admin = json.get("admin").expect("admin key");
+        for field in ts_interface_fields(API_TS, "AdminConfigResponse") {
+            assert!(admin.get(&field).is_some(), "admin view 缺少字段 {field}");
+        }
+
+        let server = json.get("server").expect("server key");
+        for field in ts_interface_fields(API_TS, "ServerConfig") {
+            assert!(server.get(&field).is_some(), "server view 缺少字段 {field}");
+        }
+
+        let proxy = json.get("proxy").expect("proxy key");
+        for field in ts_interface_fields(API_TS, "ProxyConfig") {
+            assert!(proxy.get(&field).is_some(), "proxy view 缺少字段 {field}");
+        }
+
+        let key = json["api_keys"][0].clone();
+        for field in ts_interface_fields(API_TS, "ApiKeyEntry") {
+            assert!(key.get(&field).is_some(), "api key view 缺少字段 {field}");
+        }
+
+        let account = json["ds_core"]["accounts"][0].clone();
+        for field in ts_interface_fields(API_TS, "AccountEntry") {
+            assert!(
+                account.get(&field).is_some(),
+                "account view 缺少字段 {field}"
+            );
+        }
+    }
+
+    #[test]
+    fn responses_store_fields_round_trip_through_admin_config() {
+        let view = mask_config(&sample_config());
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["ds_core"]["responses_store_capacity"], 128);
+        assert_eq!(json["ds_core"]["responses_store_ttl_secs"], 7200);
+    }
+
+    #[test]
+    fn index_aligned_arrays_match_model_types_length() {
+        let view = mask_config(&sample_config());
+        let json = serde_json::to_value(&view).unwrap();
+        let ds = &json["ds_core"];
+        let n = ds["model_types"].as_array().unwrap().len();
+        for field in [
+            "max_input_tokens",
+            "max_output_tokens",
+            "input_character_limits",
+            "model_aliases",
+        ] {
+            assert_eq!(
+                ds[field].as_array().unwrap().len(),
+                n,
+                "{field} 必须与 model_types 等长（前端按 index 对齐渲染）"
+            );
+        }
+    }
 }

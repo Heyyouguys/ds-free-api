@@ -170,6 +170,7 @@ export interface AccountEntry {
   mobile: string;
   area_code: string;
   password: string;
+  device_id?: string;
 }
 
 export interface DsCoreConfig {
@@ -186,6 +187,8 @@ export interface DsCoreConfig {
   input_character_limits: number[];
   model_aliases: string[];
   tool_call: ToolCallTagConfig;
+  responses_store_capacity: number;
+  responses_store_ttl_secs: number;
 }
 
 export interface ProxyConfig {
@@ -210,12 +213,46 @@ export interface FullConfig {
   api_keys: ApiKeyEntry[];
 }
 
+/**
+ * 后端默认值（必须与 src/config.rs 的 default_* 函数保持一致）。
+ * 前端在这里兜底，避免缺字段时把非法配置写回后端。
+ */
+const DEFAULTS = {
+  apiBase: 'https://chat.deepseek.com/api/v0',
+  userAgent: 'DeepSeek/2.1.1 Android/35',
+  clientVersion: '2.0.0',
+  clientPlatform: 'android',
+  clientLocale: 'zh_CN',
+  maxInputTokens: 1048576,
+  maxOutputTokens: 384000,
+  maxChars: 2621440,
+  responsesStoreCapacity: 256,
+  responsesStoreTtlSecs: 3600,
+} as const;
+
+/**
+ * 把按 index 对齐 model_types 的数组补齐/截断到相同长度。
+ *
+ * 后端 `Config::validate()` 要求 `max_input_tokens` / `max_output_tokens` /
+ * `input_character_limits` 与 `model_types` 长度完全一致，
+ * 缺失项在这里用默认值补齐。
+ */
+function align<T>(arr: unknown, len: number, fallback: T): T[] {
+  const source = Array.isArray(arr) ? (arr as T[]) : [];
+  return Array.from({ length: len }, (_, i) => source[i] ?? fallback);
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function normalizeConfig(raw: any): FullConfig {
   if (!raw) raw = {};
   const accounts = raw.ds_core?.accounts ?? raw.accounts ?? [];
   const core = raw.ds_core ?? raw.deepseek ?? {};
-  
+
+  const modelTypes: string[] = Array.isArray(core.model_types) && core.model_types.length > 0
+    ? core.model_types
+    : ['default'];
+  const len = modelTypes.length;
+
   return {
     server: {
       host: raw.server?.host ?? '127.0.0.1',
@@ -224,21 +261,25 @@ export function normalizeConfig(raw: any): FullConfig {
     },
     ds_core: {
       accounts: Array.isArray(accounts) ? accounts : [],
-      api_base: core.api_base ?? 'https://chat.deepseek.com/api/v0',
+      api_base: core.api_base ?? DEFAULTS.apiBase,
       wasm_url: core.wasm_url ?? '',
-      user_agent: core.user_agent ?? 'DeepSeek/2.0.4 Android/35',
-      client_version: core.client_version ?? '2.0.4',
-      client_platform: core.client_platform ?? 'android',
-      client_locale: core.client_locale ?? 'zh_CN',
-      model_types: Array.isArray(core.model_types) ? core.model_types : ['default', 'expert'],
-      max_input_tokens: Array.isArray(core.max_input_tokens) ? core.max_input_tokens : [1048576, 1048576],
-      max_output_tokens: Array.isArray(core.max_output_tokens) ? core.max_output_tokens : [384000, 384000],
-      input_character_limits: Array.isArray(core.input_character_limits) ? core.input_character_limits : [],
-      model_aliases: Array.isArray(core.model_aliases) ? core.model_aliases : [],
+      user_agent: core.user_agent ?? DEFAULTS.userAgent,
+      client_version: core.client_version ?? DEFAULTS.clientVersion,
+      client_platform: core.client_platform ?? DEFAULTS.clientPlatform,
+      client_locale: core.client_locale ?? DEFAULTS.clientLocale,
+      model_types: modelTypes,
+      max_input_tokens: align(core.max_input_tokens, len, DEFAULTS.maxInputTokens),
+      max_output_tokens: align(core.max_output_tokens, len, DEFAULTS.maxOutputTokens),
+      input_character_limits: align(core.input_character_limits, len, DEFAULTS.maxChars),
+      model_aliases: align(core.model_aliases, len, ''),
       tool_call: core.tool_call ?? {
         extra_starts: ['<|tool_call_begin|>', '<tool_calls>', '<tool_call>'],
         extra_ends: ['<|tool_call_end|>', '</tool_calls>', '</tool_call>'],
       },
+      responses_store_capacity:
+        core.responses_store_capacity ?? DEFAULTS.responsesStoreCapacity,
+      responses_store_ttl_secs:
+        core.responses_store_ttl_secs ?? DEFAULTS.responsesStoreTtlSecs,
     },
     proxy: {
       url: raw.proxy?.url ?? null,

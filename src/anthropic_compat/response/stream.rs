@@ -302,7 +302,7 @@ where
                     return Poll::Ready(None);
                 }
                 Poll::Ready(None) => {
-                    debug!(target: "anthropic_compat::response::stream", "流结束, started={}, finished={}", this.state.started, this.state.finished);
+                    debug!(target: "anthropic_compat::response::stream", "stream ended, started={}, finished={}", this.state.started, this.state.finished);
                     // 流结束但未收到 finish_reason：优雅关闭
                     if !this.state.finished && this.state.started {
                         this.state.finished = true;
@@ -339,7 +339,7 @@ pub fn from_chat_completion_stream<S>(
 where
     S: Stream<Item = Result<ChatCompletionsResponseChunk, OpenAIAdapterError>> + Send + 'static,
 {
-    debug!(target: "anthropic_compat::response::stream", "启动流式响应映射");
+    debug!(target: "anthropic_compat::response::stream", "starting streaming response mapping");
     Box::pin(AnthropicStream::new(openai_stream))
 }
 
@@ -373,6 +373,7 @@ mod tests {
             usage: None,
             service_tier: None,
             system_fingerprint: None,
+            obfuscation: None,
         }
     }
 
@@ -394,6 +395,7 @@ mod tests {
             usage: None,
             service_tier: None,
             system_fingerprint: None,
+            obfuscation: None,
         }
     }
 
@@ -415,6 +417,7 @@ mod tests {
             usage: None,
             service_tier: None,
             system_fingerprint: None,
+            obfuscation: None,
         }
     }
 
@@ -436,6 +439,7 @@ mod tests {
             usage: None,
             service_tier: None,
             system_fingerprint: None,
+            obfuscation: None,
         }
     }
 
@@ -454,6 +458,7 @@ mod tests {
             usage: None,
             service_tier: None,
             system_fingerprint: None,
+            obfuscation: None,
         }
     }
 
@@ -473,6 +478,7 @@ mod tests {
             }),
             service_tier: None,
             system_fingerprint: None,
+            obfuscation: None,
         }
     }
 
@@ -491,6 +497,7 @@ mod tests {
             usage: None,
             service_tier: None,
             system_fingerprint: None,
+            obfuscation: None,
         }
     }
 

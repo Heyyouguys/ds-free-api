@@ -526,7 +526,7 @@ export function ConfigPage() {
                 key={i}
                 className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 p-3 items-end hover:bg-muted/15 transition-colors"
               >
-                <div className="sm:col-span-3">
+                <div className="sm:col-span-2">
                   <label htmlFor={`mod-type-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
                     {t('config.modelsSection.typeName')}
                   </label>
@@ -542,7 +542,7 @@ export function ConfigPage() {
                   />
                 </div>
 
-                <div className="sm:col-span-3">
+                <div className="sm:col-span-2">
                   <label htmlFor={`mod-in-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
                     {t('config.modelsSection.maxInput')}
                   </label>
@@ -559,7 +559,7 @@ export function ConfigPage() {
                   />
                 </div>
 
-                <div className="sm:col-span-3">
+                <div className="sm:col-span-2">
                   <label htmlFor={`mod-out-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
                     {t('config.modelsSection.maxOutput')}
                   </label>
@@ -571,6 +571,23 @@ export function ConfigPage() {
                       const next = [...config.ds_core.max_output_tokens];
                       next[i] = Number(e.target.value);
                       update(['ds_core', 'max_output_tokens'], next);
+                    }}
+                    className="font-mono text-xs"
+                  />
+                </div>
+
+                <div className="sm:col-span-3">
+                  <label htmlFor={`mod-chars-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
+                    {t('config.modelsSection.inputCharLimit')}
+                  </label>
+                  <Input
+                    id={`mod-chars-${i}`}
+                    type="number"
+                    value={config.ds_core.input_character_limits[i] ?? 2621440}
+                    onChange={(e) => {
+                      const next = [...config.ds_core.input_character_limits];
+                      next[i] = Number(e.target.value);
+                      update(['ds_core', 'input_character_limits'], next);
                     }}
                     className="font-mono text-xs"
                   />
@@ -598,14 +615,15 @@ export function ConfigPage() {
                     variant="ghost"
                     size="icon"
                     onClick={() => {
-                      const nextTypes = config.ds_core.model_types.filter((_, j) => j !== i);
-                      const nextIn = config.ds_core.max_input_tokens.filter((_, j) => j !== i);
-                      const nextOut = config.ds_core.max_output_tokens.filter((_, j) => j !== i);
-                      const nextAliases = (config.ds_core.model_aliases || []).filter((_, j) => j !== i);
-                      update(['ds_core', 'model_types'], nextTypes);
-                      update(['ds_core', 'max_input_tokens'], nextIn);
-                      update(['ds_core', 'max_output_tokens'], nextOut);
-                      update(['ds_core', 'model_aliases'], nextAliases);
+                      // 所有按 index 对齐 model_types 的数组必须同步增删，
+                      // 否则后端 validate() 会以长度不一致拒绝保存。
+                      const drop = <T,>(arr: T[]) => arr.filter((_, j) => j !== i);
+                      const core = config.ds_core;
+                      update(['ds_core', 'model_types'], drop(core.model_types));
+                      update(['ds_core', 'max_input_tokens'], drop(core.max_input_tokens));
+                      update(['ds_core', 'max_output_tokens'], drop(core.max_output_tokens));
+                      update(['ds_core', 'input_character_limits'], drop(core.input_character_limits));
+                      update(['ds_core', 'model_aliases'], drop(core.model_aliases ?? []));
                     }}
                     className="h-8 w-8 text-destructive hover:bg-destructive/10"
                     title={t('config.modelsSection.deleteModelTitle')}
@@ -621,9 +639,16 @@ export function ConfigPage() {
             variant="outline"
             size="sm"
             onClick={() => {
-              update(['ds_core', 'model_types'], [...config.ds_core.model_types, 'custom']);
-              update(['ds_core', 'max_input_tokens'], [...config.ds_core.max_input_tokens, 1048576]);
-              update(['ds_core', 'max_output_tokens'], [...config.ds_core.max_output_tokens, 384000]);
+              // 新条目的默认值须与 src/config.rs 的 default_* 保持一致
+              const core = config.ds_core;
+              update(['ds_core', 'model_types'], [...core.model_types, 'custom']);
+              update(['ds_core', 'max_input_tokens'], [...core.max_input_tokens, 1048576]);
+              update(['ds_core', 'max_output_tokens'], [...core.max_output_tokens, 384000]);
+              update(
+                ['ds_core', 'input_character_limits'],
+                [...core.input_character_limits, 2621440]
+              );
+              update(['ds_core', 'model_aliases'], [...(core.model_aliases ?? []), '']);
             }}
             className="gap-1.5 text-xs mt-2"
           >

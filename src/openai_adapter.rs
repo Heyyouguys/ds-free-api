@@ -109,7 +109,7 @@ impl OpenAIAdapter {
         mut req: ChatCompletionsRequest,
         request_id: &str,
     ) -> Result<ChatResult<ChatOutput>, OpenAIAdapterError> {
-        log::debug!(target: "adapter", "req={} 适配器开始处理: model={}, stream={}", request_id, req.model, req.stream);
+        log::debug!(target: "adapter", "req={} adapter start: model={}, stream={}", request_id, req.model, req.stream);
         use crate::openai_adapter::types::{
             FunctionCallOption, NamedFunction, NamedToolChoice, Tool, ToolChoice,
         };
@@ -174,7 +174,7 @@ impl OpenAIAdapter {
 
         let chat_resp = self.try_chat(chat_req, request_id).await?;
         let (account_id, event_stream) = Self::take_meta(chat_resp.stream).await.map_err(|e| {
-            log::error!(target: "adapter", "req={} 取 Meta 事件失败: {}", request_id, e);
+            log::error!(target: "adapter", "req={} failed to read Meta event: {}", request_id, e);
             OpenAIAdapterError::Internal("取 Meta 事件失败".into())
         })?;
 
@@ -249,19 +249,19 @@ impl OpenAIAdapter {
             match self.ds_core.v0_chat(req.clone(), request_id).await {
                 Ok(resp) => {
                     if attempt > 0 {
-                        log::info!(target: "adapter", "req={} 第 {} 次重试成功", request_id, attempt);
+                        log::info!(target: "adapter", "req={} retry #{} succeeded", request_id, attempt);
                     }
                     return Ok(resp);
                 }
                 Err(CoreError::Overloaded) if attempt + 1 < MAX_RETRIES => {
                     let delay = BASE_DELAY_MS * (1 << attempt);
-                    log::warn!(target: "adapter", "req={} Overloaded, 第 {} 次重试等待 {}ms", request_id, attempt + 1, delay);
+                    log::warn!(target: "adapter", "req={} overloaded, retry #{} in {}ms", request_id, attempt + 1, delay);
                     tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 }
                 Err(e) => return Err(e),
             }
         }
-        log::warn!(target: "adapter", "req={} {} 次重试均失败，放弃", request_id, MAX_RETRIES);
+        log::warn!(target: "adapter", "req={} all {} retries failed, giving up", request_id, MAX_RETRIES);
         Err(CoreError::Overloaded)
     }
 
@@ -396,7 +396,7 @@ impl OpenAIAdapter {
                 match self.add_account(acct).await {
                     Ok(_) => _added += 1,
                     Err(e) => {
-                        log::warn!(target: "adapter", "同步添加账号 {} 失败: {}", id, e);
+                        log::warn!(target: "adapter", "failed to add account during sync {}: {}", id, e);
                         _failed += 1;
                     }
                 }
@@ -419,7 +419,7 @@ impl OpenAIAdapter {
                 match self.remove_account(old_id).await {
                     Ok(_) => _removed += 1,
                     Err(e) => {
-                        log::warn!(target: "adapter", "同步移除账号 {} 失败: {}", old_id, e);
+                        log::warn!(target: "adapter", "failed to remove account during sync {}: {}", old_id, e);
                     }
                 }
             }
@@ -448,12 +448,12 @@ impl OpenAIAdapter {
                 Ok((account_id, Box::pin(full)))
             }
             Some(Ok(other)) => {
-                log::warn!(target: "adapter", "预期 Meta 为首事件，实际收到: {other:?}");
+                log::warn!(target: "adapter", "expected Meta as first event, got: {other:?}");
                 let rest = futures::stream::once(futures::future::ready(Ok(other))).chain(stream);
                 Ok((String::new(), Box::pin(rest)))
             }
             Some(Err(e)) => Err(e),
-            None => Err(CoreError::Stream("空流".into())),
+            None => Err(CoreError::Stream("empty stream".into())),
         }
     }
 
