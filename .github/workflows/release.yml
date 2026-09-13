@@ -21,7 +21,7 @@ env:
 
 jobs:
 
-  # ── 发布门禁：标签与版本一致 + 全量测试通过，才允许开始构建 ────────
+  # ── 发布门禁 1：标签 / 版本 / CHANGELOG 一致（秒级，无需前端产物）────
   verify:
     runs-on: ubuntu-latest
     outputs:
@@ -67,10 +67,31 @@ jobs:
           fi
           exit $status
 
+  # ── 发布门禁 2：在打标签的提交上跑全量测试 ─────────────────────────
+  #
+  # 必须先拿到 web-dist：`rust_embed` 的 `#[folder = "web/dist/"]` 在目录缺失时
+  # 会静默生成一个空的嵌入资源（`WebAssets::get` 直接不存在），
+  # 于是发布二进制会丢失整个管理面板。因此这里显式下载前端产物后再编译。
+  test:
+    needs: [verify, build-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download frontend assets
+        uses: actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: web/dist/
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake g++ libclang-dev
+      - name: Verify the admin panel is actually embedded
+        run: |
+          test -f web/dist/index.html || {
+            echo "✗ web/dist/index.html 缺失，发布二进制将不含管理面板"
+            exit 1
+          }
       - name: Run full test suite against the tagged commit
         run: cargo test --workspace --all-targets
 
@@ -96,7 +117,7 @@ jobs:
           path: web/dist/
           if-no-files-found: error
   build-linux-gnu:
-    needs: [build-frontend]
+    needs: [build-frontend, test]
     strategy:
       matrix:
         include:
@@ -147,7 +168,7 @@ jobs:
           if-no-files-found: error
 
   build-linux-musl:
-    needs: [build-frontend]
+    needs: [build-frontend, test]
     strategy:
       matrix:
         include:
@@ -222,7 +243,7 @@ jobs:
           if-no-files-found: error
 
   build-macos:
-    needs: [build-frontend]
+    needs: [build-frontend, test]
     runs-on: macos-latest
     strategy:
       matrix:
@@ -272,7 +293,7 @@ jobs:
           if-no-files-found: error
 
   build-windows:
-    needs: [build-frontend]
+    needs: [build-frontend, test]
     runs-on: windows-latest
     strategy:
       matrix:
@@ -385,7 +406,7 @@ jobs:
             ghcr.io/${{ steps.docker_meta.outputs.owner }}/ds-free-api:latest
 
   release:
-    needs: [verify, build-linux-gnu, build-linux-musl, build-macos, build-windows]
+    needs: [verify, test, build-linux-gnu, build-linux-musl, build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -94,10 +94,17 @@ Anthropic Messages 的实现；同时补齐 CI/CD 契约、前后端联调契约
 
 ### Changed
 
-- **`.github/workflows/release.yml` 新增 `verify` 门禁**：在任何交叉编译开始前校验
-  tag 与 `Cargo.toml` / `ds_core/Cargo.toml` / `web/package.json` 一致、`CHANGELOG.md`
-  存在对应条目，并运行完整测试套件；平台构建全部改为 `cargo build --release --locked`；
-  Docker 构建开启 `provenance` 与 `sbom`；`permissions` 收敛为按需授予
+- **`.github/workflows/release.yml` 新增两级发布门禁**：
+  `verify`（秒级）校验 tag 与 `Cargo.toml` / `ds_core/Cargo.toml` / `web/package.json`
+  一致且 `CHANGELOG.md` 存在对应条目；`test` 先下载 `web-dist` 再跑完整测试套件
+  （必须在编译前拿到前端产物，否则 `rust_embed` 会嵌入空资源）。
+  平台构建全部改为 `cargo build --release --locked`；Docker 构建开启
+  `provenance` 与 `sbom`；`permissions` 收敛为按需授予
+- **新增 `build.rs`：把前端产物缺失从「静默失败」变为「显式失败」**。
+  `rust_embed` 的 `#[folder = "web/dist/"]` 在目录缺失时不会报错，只生成空的嵌入资源，
+  于是 `cargo build --release` 能成功但发布出的二进制完全没有管理面板。
+  现在 release 构建直接失败并给出修复指引，debug 构建（`cargo check` / `cargo test`）
+  仅打印 `cargo:warning`，不阻断尚未构建前端的本地开发
 - **`.github/workflows/ci.yml` 重构**：新增 `changes` 路径门禁（文档-only 改动跳过 Rust 作业）与
   `concurrency` 取消策略；`check` / `test` / `security` 三个独立作业；
   工具安装改用 `taiki-e/install-action`；`cargo check/clippy/fmt` 全部覆盖 `--all-targets`；

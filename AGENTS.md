@@ -140,18 +140,28 @@ This means the file tree does not directly map to the public API. To understand 
 On tag push (`.github/workflows/release.yml`):
 
 ```
-verify (tag == Cargo.toml == web/package.json, CHANGELOG entry exists, cargo test)
+verify (tag == Cargo.toml == ds_core == web/package.json, CHANGELOG entry exists)
   └── build-frontend (bun install --frozen-lockfile + bun run build)
-        ├── build-linux-gnu  (cargo build --locked) │
-        ├── build-linux-musl (cargo build --locked) │── release (tar.gz + zip + SHA256SUMS)
-        ├── build-macos      (cargo build --locked) │
-        └── build-windows    (cargo build --locked) │
-        └── docker (ghcr.io image, provenance + SBOM)
+        └── test (downloads web-dist, then cargo test --workspace --all-targets)
+              ├── build-linux-gnu  (cargo build --release --locked) │
+              ├── build-linux-musl (cargo build --release --locked) │── release (tar.gz + zip + SHA256SUMS)
+              ├── build-macos      (cargo build --release --locked) │
+              └── build-windows    (cargo build --release --locked) │
+              └── docker (ghcr.io image, provenance + SBOM)
 ```
 
-`verify` is a **gate**: it fails fast (before any expensive cross-compilation) when the
-tag, `Cargo.toml`, `web/package.json` or `CHANGELOG.md` disagree, and it runs the full
-test suite against the tagged commit.
+Two gates run before any cross-compilation:
+
+1. `verify` — seconds, no frontend needed: fails when the tag, `Cargo.toml`,
+   `ds_core/Cargo.toml`, `web/package.json` or `CHANGELOG.md` disagree.
+2. `test` — downloads `web-dist` **before** compiling, then runs the full suite. The
+   frontend artifact is required here: see `build.rs` below.
+
+`build.rs` turns the silent `rust_embed` failure mode into an explicit one: when
+`web/dist/index.html` is missing, a **release** build fails with an explanatory panic,
+while a debug build (e.g. `cargo check` before the frontend exists) only emits
+`cargo:warning`. Without this, `cargo build --release` would succeed and ship a binary
+with no admin panel at all.
 
 `build-frontend` produces a `web-dist` artifact. Each platform build job downloads it
 before compiling Rust, so `rust_embed` embeds the real frontend assets.
@@ -566,6 +576,7 @@ Follow `docs/code-style.md`:
 | Dependency audit policy | `.cargo/audit.toml` | Documented upstream warnings that cannot be fixed here (wreq 5.x yanked, transitive lru unsound) |
 | Dependency licence/ban policy | `deny.toml` | cargo-deny: licence allow-list, banned crates, registry sources. `graph.targets` is restricted to the 5 shipped targets so Windows-only transitive crates don't skew licence checks; `[[licenses.clarify]]` pins `wreq-util` (its `GPL-3.0` SPDX id is deprecated) |
 | Licence declarations | `Cargo.toml` / `ds_core/Cargo.toml` | Both crates must declare `license` (else cargo-deny reports `unlicensed`); the path dependency in `Cargo.toml` must carry an explicit `version` (else `wildcards = "deny"` fails) |
+| Frontend embed guard | `build.rs` | Fails `--release` builds (warns on debug) when `web/dist/index.html` is missing, because `rust_embed` embeds nothing silently |
 | Outdated wrapper | `scripts/check-outdated.sh` | `cargo outdated` fails to resolve because wreq 5.x is yanked; script skips only that known case |
 | Lint exemption gate | `scripts/check-lint-exemptions.sh` | Enforces the "no `#[allow]` outside client.rs" rule in CI |
 | i18n key-set gate | `web/scripts/check-locales.mjs` | Fails CI when the three locale files diverge |
