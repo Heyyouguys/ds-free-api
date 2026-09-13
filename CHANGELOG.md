@@ -4,6 +4,99 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.8] - 2026-09-13
+
+本次发布合并了 web 管理面板的响应式/多语言重构（PR #103）、Windows HTTPS 与 `device_id` 风控支持（PR #104），
+并从 PR #91 摘取了标签感知分块与多语言 stop 截断 panic 修复。
+
+> **⚠️ 账号现状**：官方风控已大幅收紧，README / issue 中历史公开的测试账号已全部失效
+> （`USER_IS_BANNED` / `user is muted` / `RISK_DEVICE_DETECTED`）。请使用自己的账号并按
+> `docs/development.md` 配置 `device_id`，否则登录会被风控直接拒绝。
+
+### Added
+
+- **Web 管理面板现代化**（PR #103）
+  - 三语支持：新增 Bahasa Indonesia（`web/src/locales/id/common.json`），zh/en/id 三份词条
+    各 180 个 key 且完全对齐，切换器按 zh → en → id 循环
+  - 响应式布局：桌面侧边栏可折叠并持久化到 `localStorage`，平板折叠为图标栏，
+    移动端改为底部标签栏 + Material 3 卡片式列表
+  - PWA：`manifest.json` / `manifest.webmanifest` / `sw.js`（`/admin/` 作用域，
+    静态资源 stale-while-revalidate，`/admin/api/*` 直连网络）+ 启动闪屏 `SplashScreen.tsx`
+  - 新增 `SettingsPage`（Server / Proxy / ds_core 参数 + 管理员密码修改）、
+    `UserDropdown`（账户菜单：主题 / 语言 / 日志 / 设置 / 退出）、`CodeSnippet`（cURL / Python / Node.js 示例）
+  - `lib/theme.ts` 抽出主题 hook；`lib/api.ts` 增加 `normalizeConfig` 与后端错误多语言本地化
+- **账号 `device_id` 支持**（PR #104）：`AccountConfig` / `Account` / 管理面板均新增可选 `device_id` 字段，
+  登录时写入 `POST /api/v0/users/login` 请求体，用于绕过 `RISK_DEVICE_DETECTED`（biz_code 11）风控；
+  管理面板提交时留空会保留服务端已有值，旧前端不发送该字段也兼容
+- **`wreq` 启用 `webpki-roots`**（PR #104）：`default-features = false` 时 boring2 会回退到
+  `set_default_verify_paths()`，在 Windows 上找不到 CA 证书导致所有 HTTPS 请求握手失败；启用后修复
+- **回归测试**：`split_prompt_chunks` 标签边界 4 项、stop 截断多语言/跨 chunk 2 项，
+  均已在未修复代码上确认可复现失败
+- **文档**：README / README.en.md 重写测试账号章节（风控错误码表 + `device_id` 获取步骤）；
+  AGENTS.md 同步前端结构、分块策略、`device_id` 与风控排查项；`docs/development.md` 新增
+  「账号准备与风控」和「Web 前端」两节（含 i18n key 覆盖自查脚本）
+
+### Security
+
+修复 `cargo audit` 报告的 4 个真实漏洞（此前 CI 的 audit 步骤为告警配置，未真正阻断）：
+
+| 依赖 | 问题 | 处理 |
+|------|------|------|
+| `bcrypt` 0.19.1 | RUSTSEC-2026-0199：`verify` 收到非 ASCII hash 时 panic（medium） | 升级到 `0.19.3` |
+| `wasmtime` 45.0.0 | RUSTSEC-2026-0269：路径/符号链接以斜杠结尾时文件系统沙箱逃逸（high） | 升级到 `48.0.2` |
+| `wasmtime` 45.0.0 | RUSTSEC-2026-0222：Store 之间可能混淆类型索引（low） | 同上 |
+| `crossbeam-epoch` 0.9.18 | RUSTSEC-2026-0204：无效指针的 `fmt::Pointer` 解引用 | 升级到 `0.9.21`（wasmtime 传递依赖） |
+
+同时升级 `anyhow` 1.0.104、`rand` 0.10.2（拉起修复后的 `chacha20` 0.10.2）。
+
+剩余 3 条为**无法在本仓库消除**的上游告警，已在 `.cargo/audit.toml` 中文档化并显式忽略：
+`wreq` / `wreq-util` 5.x 被上游全部 yank（crates.io 上非 yanked 的只有 6.0.0-rc.*），
+以及由 `wreq` 传递引入的 `lru` 0.13 `unsound`（RUSTSEC-2026-0253，触发前提是缓存 key 的
+`Drop` panic，本项目未使用该模式，当前锁定的上游版本尚不存在 0.13 补丁）。
+
+CI 的 audit / outdated 步骤同步修正：原 `actions-rust-lang/audit` 的 `args: --deny warnings`
+不是该 action 的合法输入（日志中出现 `Unexpected input(s) 'args'`），实际并未生效；
+现在改为显式执行 `cargo audit`，并新增 `scripts/check-outdated.sh` 处理 yank 导致的解析阻塞
+（真实「有新版可用」仍会失败，仅跳过 wreq yank 这一已知情况）。
+
+### Fixed
+
+- **expert 分块切分不再切断标签**（取自 PR #91）：`split_prompt_chunks` 改为按 `<｜Role｜>` 标签边界
+  贪心打包，避免切出 `<｜Assista` / `nt｜>` 半截标签导致上游偶发空回复（issue #79）；
+  单个 message 超限时退化为该块的字符切分
+- **多语言输出下 stop 截断 panic**（取自 PR #91）：`StopDetectStream` 中
+  `&buffer[sent_len..pos]` 在 `sent_len > pos`（stop 串跨 chunk）或 byte index 落在
+  UTF-8 续字节上（中文 / 日文 / 俄文）时会 panic（`begin > end when slicing`）；
+  现取 `min` 并用 `floor_char_boundary` 对齐 char 边界
+- **Docker 配置回归**：`docker/config.example.toml` 的 `host` 曾被同步脚本改回 `127.0.0.1`，
+  导致容器内只监听环回地址、宿主机端口映射不可达；恢复为 `0.0.0.0` 并补充注释
+
+### Changed
+
+- `Cargo.toml` / `ds_core/Cargo.toml` 版本提升到 `0.2.8`，`web/package.json` 同步为 `0.2.8`
+- 依赖升级：`wasmtime` 45 → 48、`bcrypt` 0.19.1 → 0.19.3、`anyhow` 1.0.102 → 1.0.104、
+  `rand` 0.10.0 → 0.10.2、`crossbeam-epoch` 0.9.18 → 0.9.21、`chacha20` 0.10.0 → 0.10.2
+- `just check` 中 `cargo audit --deny warnings` 改为 `cargo audit`，`cargo outdated` 改走
+  `scripts/check-outdated.sh`；CI 同步
+- `ds_core/Cargo.toml` 的 `wreq` 显式开启 `webpki-roots`（PR #104），保证 Windows 上 HTTPS 可用
+- AGENTS.md 明确三语词条 key 必须保持一致，并记录 PWA / 响应式相关文件位置
+
+### 测试结果
+
+- `cargo test --workspace`：124 passed / 0 failed（ds-free-api 120 + ds_core 4，其中新增 6 项回归测试）
+- `cargo clippy -- -D warnings`、`cargo fmt --check`：通过
+- `cargo check --workspace --all-targets`：通过
+- 前端 `bun install --frozen-lockfile` + `bun run typecheck` + `bun run build` + `bun run lint`：全部通过
+- i18n key 覆盖：zh / en / id 各 180 key，缺失 0，三份 key 集合完全一致
+- 管理面板接口手测：`/health`、`/v1/models`、`/anthropic/v1/models`、未授权 401、
+  `POST /admin/api/setup` → `login` → `GET/PUT /admin/api/config` 全链路通过；
+  验证了 PUT 省略 `device_id` 时服务端保留已有值
+- `cargo audit`：0 vulnerabilities（修复 4 个真实漏洞后）
+- **限制说明**：本次上游风控导致所有可获取的公开测试账号均被封禁或禁言
+  （3 个新账号返回 `user is muted` + `mute_until`，15 个历史账号返回 `USER_IS_BANNED`），
+  因此未能完成真实模型推理的 e2e 场景回归；聊天链路仅验证到账号池耗尽时正确返回
+  `429 {"code":"overloaded"}` 且不 panic
+
 ## [0.2.7-pre1] - 2026-05-14
 
 ### Fix: 主要修复因为官方限制expert模型的上传文件导致的问题, 以及其他的一些修改

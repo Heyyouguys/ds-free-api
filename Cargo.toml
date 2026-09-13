@@ -59,7 +59,7 @@ match_bool = "deny"
 
 [package]
 name = "ds-free-api"
-version = "0.2.7-pre1"
+version = "0.2.8"
 license = "GPL-3.0"
 edition = "2024"
 
@@ -67,10 +67,10 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-anyhow = "1.0.102"
+anyhow = "1.0.104"
 axum = "0.8.8"
 base64 = "0.22.1"
-bcrypt = "0.19"
+bcrypt = "0.19.3"
 bytes = "1"
 chrono = "0.4.44"
 dashmap = "6"
@@ -81,7 +81,7 @@ hmac = "0.13.0"
 log = "0.4.29"
 mime_guess = "2.0.5"
 pin-project-lite = "0.2.17"
-rand = "0.10.0"
+rand = "0.10.2"
 rust-embed = "8.11.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"

@@ -27,7 +27,7 @@ A Rust API proxy that translates DeepSeek's free web chat into standard OpenAI a
 - **Tool call ready**: Full OpenAI function calling implementation with a 3-tier self-healing pipeline (text repair → JSON repair → model fallback), covering 10+ malformed formats
 - **File upload ready**: Inline data URL files in OpenAI `file`/`image_url` content parts and Anthropic `image`/`document` content blocks are automatically uploaded to DeepSeek sessions; HTTP URLs trigger search mode so the model can access link content directly
 - **Oversized prompt fallback**: When the prompt exceeds model limits, automatically falls back to chunked completion with file upload
-- **Web admin panel**: Built-in dashboard for account pool status, API key management, request logs, i18n internationalization, theme switcher, and hot-reloadable config — ready out of the box
+- **Web admin panel**: Built-in dashboard for account pool status, API key management, request logs, i18n (Simplified Chinese / English / Bahasa Indonesia), theme switcher, responsive layout (desktop / tablet / mobile) and PWA install — hot-reloadable config, ready out of the box
 - **Built with Rust**: Single binary + single TOML config, cross-platform native performance (web panel compiled in at build time)
 - **Multi-account pool**: Idle-aware round-robin selection (DashMap lock-free reads), horizontal scaling for concurrency
 
@@ -63,6 +63,43 @@ The `config/` and `data/` directories are bind-mounted into the container — co
 ### Free Test Accounts
 
 Please register your own. You can refer to the method in [issue #62](https://github.com/NIyueeE/ds-free-api/issues/62).
+
+> **⚠️ Account risk-control status (2026-09)**: Upstream risk control has tightened significantly.
+> Every test account previously published in this README or in the issues **is now dead**
+> (`USER_IS_BANNED` / `user is muted` / `RISK_DEVICE_DETECTED`). This is not a bug in this project —
+> it is an upstream policy change against shared accounts:
+>
+> | Upstream response | Meaning | What to do |
+> |-------------------|---------|------------|
+> | `biz_code=10 USER_IS_BANNED` | Account permanently banned | Unrecoverable — register a new account |
+> | `biz_code=5 user is muted` | Temporary mute (response carries `mute_until`, usually weeks) | Re-login does not help; the account is left in `invalid` |
+> | `biz_code=11 RISK_DEVICE_DETECTED` | Missing browser device fingerprint | Add `device_id` to that account's config (see below) |
+>
+> So do **not** rely on public test accounts. Use your own and set a `device_id` per account in
+> `config.toml` or the admin panel, otherwise login is rejected by risk control.
+
+#### How to obtain `device_id`
+
+`device_id` is the device-level fingerprint produced by the Shumei SDK. It is per browser/machine,
+so one value can be reused across multiple accounts and only needs to be captured once:
+
+1. Open `https://chat.deepseek.com/sign_in` in Chrome and log in once (let the page fully load so the risk-control script initializes)
+2. Open DevTools → Network and filter for `users/login`
+3. Trigger a login, inspect that request's payload, and copy the `device_id` value
+4. Add it to the account config:
+
+   ```toml
+   [[ds_core.accounts]]
+   email = "you@example.com"
+   mobile = ""
+   area_code = ""
+   password = "your-password"
+   device_id = "value captured from the browser"
+   ```
+
+   The admin panel config page exposes the same field (leaving it empty keeps the existing server-side value).
+
+> Shortcut: run `SMSdk.getDeviceId()` in the browser console (once `SMSdk` is ready) to read the value directly.
 
 
 ## API Endpoints
@@ -132,12 +169,16 @@ tool_call.extra_ends = ["<|tool_call_end|>", "</tool_calls>", "</tool_call>"]
 
 Visit `http://127.0.0.1:22217/admin` after starting the server:
 
-- **Dashboard**: Request statistics, account pool status at a glance
-- **Accounts**: View/add/remove accounts, manually re-login accounts in Error state
+- **Dashboard**: Request statistics, account pool status at a glance (switches to a card layout on mobile)
+- **Accounts**: View/add/remove accounts (including the `device_id` field), manually re-login accounts in Error state
 - **API Keys**: Create/delete API keys, masked display
-- **Models**: Available models with details
-- **Config**: Current runtime config (sensitive fields masked)
+- **Models**: Available models with details, plus built-in cURL / Python / Node.js snippets
+- **Config**: Accounts, API keys, model types and tool-call tags
+- **Settings**: Server / proxy / ds_core client parameters, and admin password change
 - **Logs**: Recent request logs and runtime logs
+
+The UI supports three languages (Simplified Chinese / English / Bahasa Indonesia), light/dark themes
+(system / light / dark), a collapsible sidebar persisted to `localStorage`, and installs as a PWA.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/NIyueeE/ds-free-api/main/assets/web_p1.png" alt="Dashboard Overview" width="700">

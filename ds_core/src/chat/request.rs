@@ -698,14 +698,63 @@ impl Chat {
 
 // ── ChatML 解析与历史拆分 ──────────────────────────────────────────────
 
-/// 按字符数切分 prompt 为 chunk（不感知标签边界）
+/// 按 `<｜Role｜>` 标签边界切分 prompt 为 chunk
+///
+/// 贪心地把相邻的完整 message 块打包到 `chunk_size` 字符以内，避免字符级盲切
+/// 把一个标签切成 `<｜Assista` / `nt｜>` 两半（上游会因此偶发空回复）。
+/// 单个 message 本身就超过 `chunk_size` 时，退化为对该块做字符级切分。
 fn split_prompt_chunks(prompt: &str, chunk_size: usize) -> Vec<String> {
-    prompt
-        .chars()
-        .collect::<Vec<_>>()
-        .chunks(chunk_size)
-        .map(|c| c.iter().collect())
-        .collect()
+    let char_chunks = |s: &str| -> Vec<String> {
+        s.chars()
+            .collect::<Vec<_>>()
+            .chunks(chunk_size)
+            .map(|c| c.iter().collect())
+            .collect()
+    };
+
+    // 收集所有标签起点作为切分候选边界
+    let mut tag_starts = Vec::new();
+    let mut search_pos = 0;
+    while let Some(idx) = prompt[search_pos..].find(TAG_START) {
+        let abs = search_pos + idx;
+        tag_starts.push(abs);
+        search_pos = abs + TAG_START.len();
+    }
+    if tag_starts.is_empty() {
+        return char_chunks(prompt);
+    }
+
+    // 按标签起点切块：每块从标签开始，到下一个标签起点结束
+    let mut blocks: Vec<&str> = Vec::new();
+    if tag_starts[0] > 0 {
+        blocks.push(&prompt[..tag_starts[0]]);
+    }
+    for (i, start) in tag_starts.iter().enumerate() {
+        let end = tag_starts.get(i + 1).copied().unwrap_or(prompt.len());
+        blocks.push(&prompt[*start..end]);
+    }
+
+    // 贪心合并块，尽量塞满每个 chunk
+    let mut chunks: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for block in blocks {
+        let block_len = block.chars().count();
+        if block_len > chunk_size {
+            if !current.is_empty() {
+                chunks.push(std::mem::take(&mut current));
+            }
+            chunks.extend(char_chunks(block));
+            continue;
+        }
+        if current.chars().count() + block_len > chunk_size && !current.is_empty() {
+            chunks.push(std::mem::take(&mut current));
+        }
+        current.push_str(block);
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
 }
 
 struct ChatBlock {
@@ -774,4 +823,79 @@ fn split_history_prompt(prompt: &str) -> (String, String) {
 
     // 没有 assistant 块（理论不应发生），完整 prompt 内联
     (prompt.to_string(), String::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 每个 chunk 都必须以完整标签开头，且不得把 `<｜Role｜>` 切成两半
+    fn assert_tags_intact(chunks: &[String]) {
+        for chunk in chunks {
+            // 允许首块是标签前的内容；其余块必须从标签起点开始
+            if chunk.contains("｜>") {
+                let opens = chunk.matches("<｜").count();
+                let closes = chunk.matches("｜>").count();
+                assert_eq!(
+                    opens,
+                    closes,
+                    "chunk 内标签不成对（半截标签）: {:?}",
+                    &chunk[..chunk.len().min(60)]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn split_prompt_chunks_respects_tag_boundaries() {
+        let mut prompt = String::new();
+        for i in 0..40 {
+            prompt.push_str("<｜User｜>");
+            prompt.push_str(&format!("这是第 {i} 条用户消息, 用来把 prompt 撑长一些。"));
+            prompt.push_str("<｜Assistant｜>好的，收到。\n");
+        }
+        let chunks = split_prompt_chunks(&prompt, 500);
+        assert!(chunks.len() > 1, "prompt 应被切分为多个 chunk");
+        assert_tags_intact(&chunks);
+        // 拼回原样（内容无损）
+        assert_eq!(chunks.concat(), prompt);
+        // 除首块外，每块都以标签开头
+        for chunk in chunks.iter().skip(1) {
+            assert!(
+                chunk.starts_with(TAG_START),
+                "chunk 未从标签边界开始: {:?}",
+                &chunk[..chunk.len().min(40)]
+            );
+        }
+    }
+
+    #[test]
+    fn split_prompt_chunks_handles_oversized_single_block() {
+        let prompt = format!("<｜User｜>{}", "长".repeat(1000));
+        let chunks = split_prompt_chunks(&prompt, 100);
+        assert!(chunks.len() > 1);
+        assert_eq!(chunks.concat(), prompt);
+        // 单块超限时退化为字符切分，字符数不得超限
+        for chunk in &chunks {
+            assert!(chunk.chars().count() <= 100);
+        }
+    }
+
+    #[test]
+    fn split_prompt_chunks_without_tags_falls_back_to_char_split() {
+        let prompt = "a".repeat(250);
+        let chunks = split_prompt_chunks(&prompt, 100);
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks.concat(), prompt);
+    }
+
+    #[test]
+    fn split_prompt_chunks_respects_char_budget() {
+        let prompt = "<｜User｜>你好<｜Assistant｜>你好呀<｜User｜>再见";
+        let chunks = split_prompt_chunks(prompt, 12);
+        for chunk in &chunks {
+            assert!(chunk.chars().count() <= 12, "chunk 超限: {chunk:?}");
+        }
+        assert_eq!(chunks.concat(), prompt);
+    }
 }

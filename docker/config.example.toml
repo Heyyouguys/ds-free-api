@@ -1,5 +1,6 @@
 [server]
-host = "127.0.0.1"
+# 容器内必须监听 0.0.0.0，否则宿主机的端口映射无法访问
+host = "0.0.0.0"
 port = 22217
 
 # CORS 允许的 Origin 列表（默认 ["http://localhost:22217"]）
@@ -25,6 +26,20 @@ port = 22217
 # mobile = "13800138000"
 # area_code = "+86"
 # password = "pass2"
+
+# 设备指纹 ID（可选）：登录返回 RISK_DEVICE_DETECTED（biz_code=11）风控时必填
+# 获取方式：用 Chrome 打开 https://chat.deepseek.com/sign_in 并登录一次，
+# 在开发者工具 → Network 中查看 POST /api/v0/users/login 请求体里的 device_id 值；
+# 也可在页面加载完成后于控制台执行 SMSdk.getDeviceId() 直接读取。
+# 该 ID 是设备级的（同一浏览器/机器可复用于多个账号），获取一次即可长期复用。
+# 留空则沿用服务端已有值（管理面板保存时不会覆盖）。
+# 示例（按账号分别填写）：
+# [[ds_core.accounts]]
+# email = "user2@example.com"
+# mobile = ""
+# area_code = ""
+# password = "pass3"
+# device_id = "Bjyk87PcoVWPPBrs3aHGgXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX=="
 
 # 已验证通过的 User-Agent（Android 客户端模拟）
 # user_agent = "DeepSeek/2.1.1 Android/35"

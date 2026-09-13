@@ -28,7 +28,7 @@
 - **文件上传就绪**：支持 OpenAI `file` / `image_url` content part 和 Anthropic `image` / `document` content block 的内联 data URL 文件自动上传到 DeepSeek 会话；
   HTTP URL 自动触发搜索模式，模型可直接访问链接内容
 - **超长提示词回退**：当提示词超过模型限制时，自动使用分块补全 + 文件上传绕过
-- **Web 管理面板**：内置可视化面板，账号池状态、API Key 管理、请求日志、i18n 国际化、主题切换，配置热重载开箱即用
+- **Web 管理面板**：内置可视化面板，账号池状态、API Key 管理、请求日志、i18n 国际化（简体中文 / English / Bahasa Indonesia）、主题切换、响应式布局（桌面 / 平板 / 移动）与 PWA，配置热重载开箱即用
 - **Rust 实现**：单可执行文件 + 单 TOML 配置，跨平台原生高性能（Web 面板编译时嵌入，开箱即用）
 - **多账号池**：空闲最久优先轮转（DashMap 无锁读），支持水平扩展并发
 
@@ -64,6 +64,42 @@ Compose 配置见 [docker/docker-compose.yaml](./docker/docker-compose.yaml)。
 ### 免费测试账号
 
 请自行注册，可以参考 [issue #62](https://github.com/NIyueeE/ds-free-api/issues/62) 的方法。
+
+> **⚠️ 账号风控现状（2026-09）**：官方风控已大幅收紧，本仓库 README 与 issue 中历史公开的测试账号
+> **已全部失效**（`USER_IS_BANNED` / `user is muted` / `RISK_DEVICE_DETECTED`）。这不是项目 bug，
+> 而是上游针对共享账号的策略变化：
+>
+> | 上游返回 | 含义 | 处理方式 |
+> |----------|------|----------|
+> | `biz_code=10 USER_IS_BANNED` | 账号已被永久封禁 | 无法恢复，只能注册新账号 |
+> | `biz_code=5 user is muted` | 临时禁言（响应含 `mute_until`，通常数周） | 无法通过重登恢复，账号会被标记为 `invalid` |
+> | `biz_code=11 RISK_DEVICE_DETECTED` | 缺少浏览器设备指纹 | 在账号配置里补上 `device_id`（见下） |
+>
+> 因此现在**不建议依赖公共测试账号**。请使用自己的账号，并在 `config.toml` / 管理面板中为每个账号
+> 填写 `device_id`，否则登录会直接被风控拦截。
+
+#### 如何获取 `device_id`
+
+`device_id` 是数美（Shumei）SDK 生成的设备级指纹，同一浏览器/机器生成的 ID 可在多个账号间复用，
+取一次长期有效：
+
+1. 用 Chrome 打开 `https://chat.deepseek.com/sign_in` 并登录一次（确保页面完全加载，风控脚本已初始化）
+2. 打开开发者工具 → Network，过滤 `users/login`
+3. 发起一次登录，查看该请求的 Payload，复制 `device_id` 字段的值
+4. 写入账号配置：
+
+   ```toml
+   [[ds_core.accounts]]
+   email = "you@example.com"
+   mobile = ""
+   area_code = ""
+   password = "your-password"
+   device_id = "从浏览器抓到的值"
+   ```
+
+   管理面板 → 配置页同样提供该字段的编辑（留空则保留服务端已有值）。
+
+> 简化方案：在浏览器控制台执行 `SMSdk.getDeviceId()`（需等 `SMSdk` 就绪）也能直接拿到该值。
 
 ## API 端点
 
@@ -131,12 +167,16 @@ tool_call.extra_ends = ["<|tool_call_end|>", "</tool_calls>", "</tool_call>"]
 
 启动服务后访问 `http://127.0.0.1:22217/admin` 即可进入管理面板：
 
-- **概览**：请求统计、账号池状态一览
-- **账号池**：查看/添加/移除账号，手动重新登录 Error 状态账号
+- **概览**：请求统计、账号池状态一览（移动端自动切换为卡片式布局）
+- **账号池**：查看/添加/移除账号（含 `device_id` 字段），手动重新登录 Error 状态账号
 - **API Keys**：创建/删除 API Key，脱敏展示
-- **模型**：可用模型列表与详情
-- **配置**：当前运行配置（脱敏）
+- **模型**：可用模型列表与详情，内置 cURL / Python / Node.js 调用示例
+- **配置**：账号、API Key、模型类型、工具调用标签等核心配置
+- **设置**：Server / Proxy / ds_core 客户端参数，以及管理员密码修改
 - **日志**：最近请求日志与运行时日志
+
+界面支持三语切换（简体中文 / English / Bahasa Indonesia）、明暗主题（跟随系统 / 亮 / 暗）、
+侧边栏折叠（状态持久化到 `localStorage`），并可作为 PWA 添加到桌面/主屏。
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/NIyueeE/ds-free-api/main/assets/web_p1.png" alt="管理面板概览" width="700">
