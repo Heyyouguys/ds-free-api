@@ -4,6 +4,68 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.10] - 2026-09-13
+
+提示词回归标准 ChatML，去掉容易被上游风控命中的注入特征；同时修复多轮历史缺少生成锚点、
+以及 `tool_calls` 场景 `completion_tokens` 恒为 0。
+
+### Changed
+
+- **提示词回归标准 ChatML**：原实现把工具定义与调用规则**重复注入两遍** ——
+  `<｜System｜>` 段末尾一份完整 reminder，末尾再追加
+  `<｜Assistant｜><think>嗯，我刚刚被系统提醒需要遵循以下内容:...`（不闭合的 `<think>`
+  + 角色扮演式元指令）。现在工具定义 / 格式规范 / 调用指令 / `response_format` 约束
+  统一作为**普通 System 内容注入一次**，彻底移除未闭合 `<think>` 与元指令措辞
+
+  A/B 实测（同一账号、同一工具请求，对照 prompt 仅差包装方式）：
+
+  | 方案 | 工具调用结果 | prompt 长度 | 上游累计 token |
+  |------|--------------|-------------|----------------|
+  | 旧：`<think>` 注入 + 重复两遍 | `get_weather {"city":"北京"}` ✅ | 2652 字符 | 1414 |
+  | 新：标准 ChatML 注入一次 | `get_weather {"city":"北京"}` ✅ | ~1400 字符 | 802 |
+
+  模型遵循度一致，token 成本降低约 43%；同时消除了「未闭合标签 + 元指令 + 重复块」
+  这三个可疑特征（与 issue #97/#101/#102 的封禁反馈吻合）
+
+### Fixed
+
+- **多轮历史缺少生成锚点**（既有 bug）：`prompt.rs` 末尾判断的是「是否**出现过**
+  `<｜Assistant｜>`」而非「最后一段是否是」。多轮历史本身就含 assistant 轮次，
+  因此不会补生成锚点，`split_history_prompt` 找不到拆分点，整段历史被当作
+  inline prompt 直接发送。改为「最后一段不是 `<｜Assistant｜>` 才追加」
+- **`tool_calls` 场景 `completion_tokens` 恒为 0**：`tool_parser` 有两个
+  `ToolParseState::Done` 分支。工具调用之后模型继续输出文字时会命中第一个分支，
+  该分支立刻发出结束 chunk 并置位 `finish_emitted`，导致随后携带
+  `finish_reason` + `usage` 的收尾 chunk 被丢弃（实测上游 `usage=811` 但对外报 0）。
+  现在第一个分支只继续丢弃幻觉内容、不提前结束流，流结束分支在未发出结束 chunk 时补发
+
+### Added
+
+- `examples/prompt_probe.rs` — 绕过适配层直接向 ds_core 发送任意 prompt，
+  用于 A/B 对比不同提示词包装方式。用法：
+
+  ```bash
+  PROBE_VARIANTS=/tmp/variants.json PROBE_MODEL_TYPE=default \
+    cargo run --example prompt_probe -- -c py-e2e-tests/config.toml
+  ```
+
+- 3 项回归测试（均已在未修复代码上确认失败）：
+  `prompt_ends_with_assistant_anchor_for_multiturn_history`、
+  `tools_injected_into_system_message_once`、`stream_tool_calls_preserves_usage`
+
+### 测试结果
+
+- `cargo test --workspace`：**130 passed / 0 failed**
+- `cargo clippy -- -D warnings`、`cargo fmt --check`：通过
+- **e2e `scenarios/basic`：40/42 通过**；**`scenarios/repair`：30/30 全部通过**
+  （10 种工具调用损坏格式 × 3 模型）
+- `stats.json` 确认 token 统计恢复：`completion_tokens` 累计 53185（此前恒为 0）
+
+> **关于防封禁的说明**：本次改动去除了提示词中的注入特征，且实测同样的 e2e 强度下
+> 账号未被禁言（此前旧提示词在 basic + 部分压测后即触发 `biz_code=5 user is muted`）。
+> 但两次测试使用的是不同账号、不同时间点，**不足以证明因果**，仅作为正面信号。
+> 若仍出现封禁，请按 `docs/development.md` 的账号章节排查。
+
 ## [0.2.9] - 2026-09-13
 
 修复 issue #93（「输出token没显示」）—— 所有端点的 `completion_tokens` / `output_tokens`
