@@ -368,8 +368,9 @@ Request fields mapped in `request/resolver.rs`:
   containing an HTTP URL also forces search mode on.
 - **File upload**: data URL content parts → auto upload to session; HTTP URLs → search mode.
 - **Response format**: `response_format` → JSON/schema text injection in prompt.
-- **Login `device_id`**: optional per-account field forwarded into the `/users/login` payload;
-  required to pass `RISK_DEVICE_DETECTED` (biz_code 11) risk control. See `docs/development.md`.
+- **Login `device_id`**: per-account field forwarded into the `/users/login` payload.
+  It is **required in practice** — logging in without it is rejected with
+  `RISK_DEVICE_DETECTED` (biz_code 11), verified empirically; see `docs/development.md`.
 
 ### Overloaded Retry
 
