@@ -35,7 +35,12 @@ Anthropic Messages 的实现；同时补齐 CI/CD 契约、前后端联调契约
   `anthropic-sdk-typescript` / docs.anthropic.com 的兼容性审计（已修复项、确认合规项、
   有意未实现项、客户端互操作矩阵）
 - **`deny.toml`**：cargo-deny 许可证白名单、禁用 crate（`openssl-sys` / `native-tls`）与
-  registry 来源校验
+  registry 来源校验；`graph.targets` 限定为实际发布的 5 个目标（避免仅 Windows 生效的
+  传递依赖干扰许可证判断），并 clarify `wreq-util` 的弃用 SPDX 标识
+- **许可证声明修正**：`ds_core` 原本未声明 `license`（cargo-deny 报 `unlicensed`）；
+  `Cargo.toml` 的 path 依赖未带 `version`（触发 `wildcards = "deny"`）；
+  两个 crate 的 `GPL-3.0` 是被弃用的 SPDX 标识，且仓库无 "or later" 授权说明，
+  精确化为 `GPL-3.0-only`
 - **`scripts/check-lint-exemptions.sh`**：把 AGENTS.md 的「除 `client.rs` 外禁止 `#[allow]`」
   与「日志必须为英文」两条约定变成 CI 可执行检查
 - **`web/scripts/check-locales.mjs`**：三个 locale 文件键集一致性检查（`bun run check:locales`）

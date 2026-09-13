@@ -564,7 +564,8 @@ Follow `docs/code-style.md`:
 | e2e scenario test framework | `py-e2e-tests/` | JSON-driven scenarios with checks |
 | CI pipeline | `.github/workflows/ci.yml` | `changes` gate + `build-frontend` + `check` + `test` + `security` |
 | Dependency audit policy | `.cargo/audit.toml` | Documented upstream warnings that cannot be fixed here (wreq 5.x yanked, transitive lru unsound) |
-| Dependency licence/ban policy | `deny.toml` | cargo-deny: licence allow-list, banned crates, registry sources |
+| Dependency licence/ban policy | `deny.toml` | cargo-deny: licence allow-list, banned crates, registry sources. `graph.targets` is restricted to the 5 shipped targets so Windows-only transitive crates don't skew licence checks; `[[licenses.clarify]]` pins `wreq-util` (its `GPL-3.0` SPDX id is deprecated) |
+| Licence declarations | `Cargo.toml` / `ds_core/Cargo.toml` | Both crates must declare `license` (else cargo-deny reports `unlicensed`); the path dependency in `Cargo.toml` must carry an explicit `version` (else `wildcards = "deny"` fails) |
 | Outdated wrapper | `scripts/check-outdated.sh` | `cargo outdated` fails to resolve because wreq 5.x is yanked; script skips only that known case |
 | Lint exemption gate | `scripts/check-lint-exemptions.sh` | Enforces the "no `#[allow]` outside client.rs" rule in CI |
 | i18n key-set gate | `web/scripts/check-locales.mjs` | Fails CI when the three locale files diverge |
