@@ -17,7 +17,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import httpx
 from openai import OpenAI
 from anthropic import Anthropic
 
@@ -336,11 +335,13 @@ def main():
     models = [args.model] if args.model else config.get("models", ["deepseek-default"])
 
     port = config["port"]
-    oai_client = OpenAI(base_url=f"http://127.0.0.1:{port}/v1", api_key=api_key)
+    # 注意：不要传 http_client —— anthropic>=1.5 内部改用 httpx2，
+    # 传 httpx.Client 会直接 TypeError。两个 SDK 都支持 timeout 参数，用它即可。
+    oai_client = OpenAI(base_url=f"http://127.0.0.1:{port}/v1", api_key=api_key, timeout=120)
     anth_client = Anthropic(
         base_url=f"http://127.0.0.1:{port}/anthropic", api_key=api_key,
         default_headers={"Authorization": f"Bearer {api_key}"},
-        http_client=httpx.Client(timeout=120),
+        timeout=120,
     )
 
     suite_name = f"{Path(args.scenario_dir).name} 测试"

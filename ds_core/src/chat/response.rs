@@ -337,7 +337,7 @@ impl PatchState {
 
 // ── 响应阶段跟踪 ─────────────────────────────────────────────────────
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum Phase {
     Init,
     Thinking,
@@ -426,43 +426,7 @@ impl Stream for ResponseStream {
 
                 // 过滤：阶段切换信号插入 + 延后排队
                 let mut filtered = Vec::new();
-                for evt in events {
-                    match &evt {
-                        StreamEvent::ThinkDelta { .. }
-                            if *this.phase == Phase::Init || *this.phase == Phase::Content =>
-                        {
-                            *this.phase = Phase::Thinking;
-                            filtered.push(StreamEvent::ThinkStart);
-                        }
-                        StreamEvent::ContentDelta { .. }
-                            if *this.phase == Phase::Init || *this.phase == Phase::Thinking =>
-                        {
-                            *this.phase = Phase::Content;
-                            filtered.push(StreamEvent::ContentStart);
-                        }
-                        _ => {}
-                    }
-                    filtered.push(evt);
-                }
-
-                // 检查 status 是否已结束
-                if let Some(status) = &this.patch_state.status
-                    && (status == "FINISHED" || status == "INCOMPLETE")
-                {
-                    *this.phase = Phase::Done;
-                    let finish = (status == "FINISHED").then(|| "stop".to_string());
-                    let usage = this.patch_state.accumulated_token_usage;
-                    if finish.is_some() && !has_response_content(this.patch_state) {
-                        log::warn!(
-                            target: "ds_core::accounts",
-                            "状态机 FINISHED 但无 RESPONSE 内容"
-                        );
-                    }
-                    filtered.push(StreamEvent::Done {
-                        finish_reason: finish,
-                        accumulated_token_usage: usage,
-                    });
-                }
+                finalize_events(this.patch_state, this.phase, events, &mut filtered);
 
                 // 第一个事件立即返回，其余入 pending
                 if let Some(first) = filtered.first().cloned() {
@@ -482,18 +446,37 @@ impl Stream for ResponseStream {
                 }
                 Poll::Ready(None) => {
                     *this.finished = true;
-                    // 处理缓冲区中剩余数据
-                    if !this.buf.is_empty() {
-                        let drained: Vec<u8> = this.buf.drain(..).collect();
-                        let frame = String::from_utf8_lossy(&drained);
+
+                    // 冲刷缓冲区中剩余数据。上游在 status=FINISHED 之后偶发直接断流，
+                    // 最后几帧（含 accumulated_token_usage / response/status）可能不带
+                    // 结尾空行；必须在这里解析，否则会丢掉 finish_reason 与 token 用量。
+                    let mut flushed = Vec::new();
+                    loop {
+                        let frame = if let Some(f) = take_frame(this.buf) {
+                            f
+                        } else if this.buf.is_empty() {
+                            break;
+                        } else {
+                            let drained: Vec<u8> = this.buf.drain(..).collect();
+                            String::from_utf8_lossy(&drained).to_string()
+                        };
                         let events = this.patch_state.apply_frame(&frame)?;
-                        if !events.is_empty()
-                            && let Some(first) = events.into_iter().next()
-                        {
-                            return Poll::Ready(Some(Ok(first)));
-                        }
+                        // 即使 events 为空也要走一遍：status→Done 的转换在这里发生
+                        finalize_events(this.patch_state, this.phase, events, &mut flushed);
                     }
-                    // 未正常结束时，发送 Done
+                    // 缓冲区已空但状态机尚未结束：用已知的 status/usage 收尾
+                    if *this.phase != Phase::Done {
+                        finalize_events(this.patch_state, this.phase, Vec::new(), &mut flushed);
+                    }
+
+                    if let Some(first) = flushed.first().cloned() {
+                        for rest in flushed.into_iter().skip(1).rev() {
+                            this.pending.push(rest);
+                        }
+                        return Poll::Ready(Some(Ok(first)));
+                    }
+
+                    // 既无残留内容、也未收到结束信号：补发空 Done 让下游正常收尾
                     if *this.phase != Phase::Done {
                         *this.phase = Phase::Done;
                         return Poll::Ready(Some(Ok(StreamEvent::Done {
@@ -536,6 +519,53 @@ fn hint_to_error(data: &str) -> CoreError {
 }
 
 // ── 内部辅助（供 ResponseStream 使用） ─────────────────────────────────
+
+/// 对一帧解析出的事件做后处理：插入阶段切换信号，并在 status 结束时追加 Done
+///
+/// 正常循环与「流意外结束（EOF）时冲刷缓冲区」两条路径共用，
+/// 避免 EOF 路径丢失上游已经下发的 `finish_reason` 与 `accumulated_token_usage`。
+fn finalize_events(
+    patch_state: &PatchState,
+    phase: &mut Phase,
+    events: Vec<StreamEvent>,
+    out: &mut Vec<StreamEvent>,
+) {
+    for evt in events {
+        match &evt {
+            StreamEvent::ThinkDelta { .. } if *phase == Phase::Init || *phase == Phase::Content => {
+                *phase = Phase::Thinking;
+                out.push(StreamEvent::ThinkStart);
+            }
+            StreamEvent::ContentDelta { .. }
+                if *phase == Phase::Init || *phase == Phase::Thinking =>
+            {
+                *phase = Phase::Content;
+                out.push(StreamEvent::ContentStart);
+            }
+            _ => {}
+        }
+        out.push(evt);
+    }
+
+    if let Some(status) = &patch_state.status
+        && (status == "FINISHED" || status == "INCOMPLETE")
+        && *phase != Phase::Done
+    {
+        *phase = Phase::Done;
+        let finish = (status == "FINISHED").then(|| "stop".to_string());
+        let usage = patch_state.accumulated_token_usage;
+        if finish.is_some() && !has_response_content(patch_state) {
+            log::warn!(
+                target: "ds_core::accounts",
+                "状态机 FINISHED 但无 RESPONSE 内容"
+            );
+        }
+        out.push(StreamEvent::Done {
+            finish_reason: finish,
+            accumulated_token_usage: usage,
+        });
+    }
+}
 
 /// 检查是否有非空的 RESPONSE 内容（用于 FINISHED 告警）
 fn has_response_content(state: &PatchState) -> bool {
@@ -717,5 +747,99 @@ pub(crate) async fn wait_close(
             })?
             .map_err(|e| CoreError::Stream(e.to_string()))?;
         buf.extend_from_slice(&chunk);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 回归：上游在 status=FINISHED 之后直接断流时，`accumulated_token_usage` 与
+    /// `finish_reason` 仍必须出现在 Done 事件里（issue #93：completion_tokens 恒为 0）
+    #[test]
+    fn finalize_events_keeps_usage_when_status_finished() {
+        let mut state = PatchState::new();
+        state.status = Some("FINISHED".to_string());
+        state.accumulated_token_usage = Some(87);
+        let mut phase = Phase::Content;
+        let mut out = Vec::new();
+
+        finalize_events(&state, &mut phase, Vec::new(), &mut out);
+
+        assert_eq!(phase, Phase::Done);
+        match out.as_slice() {
+            [
+                StreamEvent::Done {
+                    finish_reason,
+                    accumulated_token_usage,
+                },
+            ] => {
+                assert_eq!(finish_reason.as_deref(), Some("stop"));
+                assert_eq!(*accumulated_token_usage, Some(87));
+            }
+            other => panic!("期望单个 Done 事件，实际: {:?}", other.len()),
+        }
+    }
+
+    /// INCOMPLETE 不应伪装成正常结束，但仍需带上 usage
+    #[test]
+    fn finalize_events_incomplete_has_no_finish_reason() {
+        let mut state = PatchState::new();
+        state.status = Some("INCOMPLETE".to_string());
+        state.accumulated_token_usage = Some(12);
+        let mut phase = Phase::Content;
+        let mut out = Vec::new();
+
+        finalize_events(&state, &mut phase, Vec::new(), &mut out);
+
+        match out.as_slice() {
+            [
+                StreamEvent::Done {
+                    finish_reason,
+                    accumulated_token_usage,
+                },
+            ] => {
+                assert_eq!(*finish_reason, None);
+                assert_eq!(*accumulated_token_usage, Some(12));
+            }
+            other => panic!("期望单个 Done 事件，实际: {:?}", other.len()),
+        }
+    }
+
+    /// 已经进入 Done 阶段后不得重复追加 Done（两条路径共用 finalize 时的去重保证）
+    #[test]
+    fn finalize_events_does_not_duplicate_done() {
+        let mut state = PatchState::new();
+        state.status = Some("FINISHED".to_string());
+        let mut phase = Phase::Done;
+        let mut out = Vec::new();
+
+        finalize_events(&state, &mut phase, Vec::new(), &mut out);
+
+        assert!(out.is_empty(), "Done 阶段不应再追加事件: {out:?}");
+    }
+
+    /// 阶段切换信号与 Done 的相对顺序：ContentStart 先于 Done，且 Done 只出现一次
+    #[test]
+    fn finalize_events_inserts_content_start_before_done() {
+        let mut state = PatchState::new();
+        state.status = Some("FINISHED".to_string());
+        state.accumulated_token_usage = Some(5);
+        let mut phase = Phase::Init;
+        let mut out = Vec::new();
+
+        finalize_events(
+            &state,
+            &mut phase,
+            vec![StreamEvent::ContentDelta {
+                content: "hi".into(),
+            }],
+            &mut out,
+        );
+
+        assert!(matches!(out[0], StreamEvent::ContentStart));
+        assert!(matches!(out[1], StreamEvent::ContentDelta { .. }));
+        assert!(matches!(out[2], StreamEvent::Done { .. }));
+        assert_eq!(out.len(), 3);
     }
 }

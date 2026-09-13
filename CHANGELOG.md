@@ -4,6 +4,51 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.9] - 2026-09-13
+
+修复 issue #93（「输出token没显示」）—— 所有端点的 `completion_tokens` / `output_tokens`
+恒为 0，同时 `finish_reason` 在流意外结束时会退化为兜底值。
+
+### Fixed
+
+- **`completion_tokens` 恒为 0**：`ResponseStream` 有两条产生 `Done` 的路径 —— 正常拆帧路径
+  和 EOF 冲刷路径。上游在 `status=FINISHED` 之后经常直接断流（不发结尾空行），最后几帧
+  （含 `accumulated_token_usage` / `response/status`）会滞留在缓冲区由 EOF 路径处理，
+  而该路径拿到事件后直接返回首个事件，既没做 `status→Done` 转换也没带出 usage。
+  实测上游确实下发了 `accumulated_token_usage: 87`，但对外报 `completion_tokens: 0`。
+  现抽出 `finalize_events()` 供两条路径共用，EOF 分支改为循环冲刷全部残留帧
+  （含无结尾空行的尾帧），并补齐收尾逻辑
+- **`finish_reason` 丢失**：同一根因，EOF 路径的 `Done` 硬编码 `finish_reason: None`，
+  导致 `stop` 只能靠上层兜底推断；现在能正确保留上游的 FINISHED / INCOMPLETE 语义
+- **e2e 框架无法运行**：`anthropic>=1.5` 内部改用 `httpx2`，`runner.py` /
+  `stress_runner.py` 传入 `httpx.Client(http_client=...)` 会直接 `TypeError`，
+  整个 e2e 套件跑不起来。改为使用 SDK 自带 `timeout` 参数，依赖同步为 `httpx2`
+
+### Added
+
+- 4 项回归测试覆盖 usage 透传、INCOMPLETE 语义、Done 去重与事件顺序
+  （已验证移除修复后其中 3 项会失败）
+
+### 测试结果
+
+使用真实账号完成端到端验证：
+
+| 端点 | 修复后 usage |
+|------|--------------|
+| `/v1/chat/completions`（非流式） | `{prompt_tokens: 31, completion_tokens: 87}` —— 与上游 `accumulated_token_usage: 87` 一致 |
+| `/v1/chat/completions`（流式 + `include_usage`） | `{prompt_tokens: 31, completion_tokens: 89}` |
+| `/anthropic/v1/messages` | `{input_tokens: 31, output_tokens: 87}` |
+
+- `cargo test --workspace`：128 passed / 0 failed
+- `cargo clippy -- -D warnings`、`cargo fmt --check`：通过
+- **e2e `scenarios/basic`：40/42 通过**（双端点 × 3 模型，覆盖基础对话、流式、深度思考、
+  工具调用、文件/图片/文档上传、HTTP 链接）。2 项失败为上游对 expert 模型文件上传返回
+  `code=7 rate limit reached`，属已知官方限制（v0.2.7 起的分块回退即为此而设），非本次改动引入
+
+> **风控实测记录**：测试账号在跑完 basic 套件后、压测过程中被上游临时禁言
+> （`biz_code=5 user is muted`，`mute_until` 约 23 小时后）。说明上游对短时间内的高频
+> 请求非常敏感，建议保持「并发数 = 账号数 ÷ 2」并避免连续压测同一账号。
+
 ## [0.2.8] - 2026-09-13
 
 本次发布合并了 web 管理面板的响应式/多语言重构（PR #103）、Windows HTTPS 与 `device_id` 风控支持（PR #104），
