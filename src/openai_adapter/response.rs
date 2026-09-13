@@ -1085,6 +1085,63 @@ mod tests {
         );
     }
 
+    /// 回归：tool_calls 场景必须保留 usage。
+    ///
+    /// 上游在工具调用之后还会送一个带 finish_reason + usage 的收尾 chunk；
+    /// 早期实现在 ToolParseState::Done 命中时就立刻发出结束 chunk，
+    /// 导致该带 usage 的 chunk 被丢弃，completion_tokens 恒为 0。
+    #[tokio::test]
+    async fn stream_tool_calls_preserves_usage() {
+        let tool_xml = tool_span(r#"[{"name": "get_weather", "arguments": {"city": "beijing"}}]"#);
+        // 关键：工具调用之后模型还会继续输出一段文字（上游真实行为，
+        // 也是 Done 状态要防的幻觉）。该 chunk 会命中 Done 分支，
+        // 早期实现正是在这里提前结束流，丢掉了随后带 usage 的收尾 chunk。
+        let events = make_full_stream(
+            &[
+                (&tool_xml, "RESPONSE"),
+                (
+                    "
+
+以上是查询结果。",
+                    "RESPONSE",
+                ),
+            ],
+            Some(811),
+        );
+        let stream = futures::stream::iter(events);
+        let chunks = collect_chunks(to_bytes_stream(super::stream(
+            stream,
+            "deepseek-default".into(),
+            super::StreamCfg {
+                include_usage: true,
+                include_obfuscation: false,
+                stop: vec![],
+                prompt_tokens: 887,
+                repair_fn: None,
+                tag_config: default_tag_config(),
+            },
+        )))
+        .await;
+
+        // 结束 chunk 必须是 tool_calls，且携带上游累计 usage
+        // （与 OpenAI 一致：usage 出现在最后一个 chunk）
+        let last = chunks.last().unwrap();
+        assert_eq!(
+            last["choices"][0]["finish_reason"], "tool_calls",
+            "最后一个 chunk 的 finish_reason 应为 tool_calls"
+        );
+        let usage = last
+            .get("usage")
+            .filter(|u| !u.is_null())
+            .unwrap_or_else(|| panic!("tool_calls 结束 chunk 必须包含 usage, 实际: {last}"));
+        assert_eq!(
+            usage["completion_tokens"], 811,
+            "completion_tokens 应保留上游累计用量, 实际: {usage:?}"
+        );
+        assert_eq!(usage["prompt_tokens"], 887);
+        assert_eq!(usage["total_tokens"], 1698);
+    }
+
     #[tokio::test]
     async fn stream_with_tool_search_and_open() {
         let events = make_full_stream(&[("hello", "RESPONSE")], None);

@@ -694,13 +694,14 @@ where
                             }
 
                             ToolParseState::Done => {
-                                if !*this.finish_emitted {
-                                    *this.finish_emitted = true;
-                                    let chunk =
-                                        make_end_chunk(this.model, Delta::default(), "tool_calls");
-                                    return Poll::Ready(Some(Ok(chunk)));
-                                }
-                                return Poll::Ready(None);
+                                // 工具调用已发出，后续内容一律丢弃（防幻觉）。
+                                //
+                                // 注意：这里不能提前发出结束 chunk。上游在工具调用
+                                // 之后还会送出一个带 finish_reason 与 usage 的收尾
+                                // chunk，若在此处就结束流，usage 会被丢掉
+                                // （表现为 tool_calls 场景 completion_tokens 恒为 0）。
+                                // 交给下面带 finish_reason 的分支或流结束分支补发。
+                                continue;
                             }
                         }
                     }
@@ -783,7 +784,19 @@ where
                             buf,
                         ))));
                     }
-                    ToolParseState::Done => return Poll::Ready(None),
+                    ToolParseState::Done => {
+                        // 上游未发送带 finish_reason 的收尾 chunk 就断流：
+                        // 补发一个结束 chunk，保证下游一定能看到 tool_calls 终止信号。
+                        if !*this.finish_emitted {
+                            *this.finish_emitted = true;
+                            return Poll::Ready(Some(Ok(make_end_chunk(
+                                this.model,
+                                Delta::default(),
+                                "tool_calls",
+                            ))));
+                        }
+                        return Poll::Ready(None);
+                    }
                 },
                 Poll::Pending => break,
             }

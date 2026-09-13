@@ -842,7 +842,7 @@ dependencies = [
 
 [[package]]
 name = "ds-free-api"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "anyhow",
  "axum",
@@ -872,7 +872,7 @@ dependencies = [
 
 [[package]]
 name = "ds_core"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "base64 0.22.1",
  "bytes",
