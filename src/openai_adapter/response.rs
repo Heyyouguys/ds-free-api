@@ -77,6 +77,20 @@ fn find_stop_pos(content: &str, stop: &[String]) -> Option<usize> {
     stop.iter().filter_map(|s| content.find(s)).min()
 }
 
+/// 返回 `<= idx` 的最近 char 边界（等价于 nightly 的 `str::floor_char_boundary`）
+///
+/// 多语言输出（中文 / 日文 / 俄文）下 stop 串的字节位置可能落在 UTF-8
+/// 续字节上，直接切片会 panic。
+fn floor_char_boundary(s: &str, mut idx: usize) -> usize {
+    if idx >= s.len() {
+        return s.len();
+    }
+    while !s.is_char_boundary(idx) {
+        idx -= 1;
+    }
+    idx
+}
+
 /// RepairStream 内部使用的流类型
 type ChunkStream =
     Pin<Box<dyn Stream<Item = Result<ChatCompletionsResponseChunk, OpenAIAdapterError>> + Send>>;
@@ -344,7 +358,12 @@ where
                         this.buffer.push_str(content);
                         if let Some(pos) = find_stop_pos(this.buffer, this.stop) {
                             trace!(target: "adapter", ">>> stop: truncate at {}", pos);
-                            let truncated = &this.buffer[*this.sent_len..pos];
+                            // sent_len 可能已经越过 stop 位置（stop 串跨 chunk / 多语言字节边界），
+                            // 此时没有新内容可发；同时两端都对齐到 char 边界避免切片 panic。
+                            let safe_start =
+                                floor_char_boundary(this.buffer, (*this.sent_len).min(pos));
+                            let safe_end = floor_char_boundary(this.buffer, pos);
+                            let truncated = &this.buffer[safe_start..safe_end];
                             if truncated.is_empty() {
                                 choice.delta.content = None;
                             } else {
@@ -665,6 +684,80 @@ mod tests {
         assert_eq!(msg.content.as_deref(), Some("hello world"));
         assert_eq!(resp.choices[0].finish_reason, Some("stop"));
         assert_eq!(resp.usage.as_ref().unwrap().completion_tokens, 41);
+    }
+
+    #[tokio::test]
+    async fn aggregate_stop_truncation_multibyte() {
+        // 回归：stop 串出现在多字节字符之后，字节位置不落在 char 边界上时不得 panic
+        let events = make_full_stream(&[("中文回答完了\n### STOP", "RESPONSE")], None);
+        let stream = futures::stream::iter(events);
+        let resp = aggregate(
+            stream,
+            "deepseek-default".into(),
+            super::StreamCfg {
+                include_usage: false,
+                include_obfuscation: false,
+                stop: vec!["### STOP".to_string()],
+                prompt_tokens: 0,
+                repair_fn: None,
+                tag_config: default_tag_config(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            resp.choices[0].message.content.as_deref(),
+            Some("中文回答完了\n")
+        );
+        assert_eq!(resp.choices[0].finish_reason.as_deref(), Some("stop"));
+    }
+
+    #[tokio::test]
+    async fn aggregate_stop_across_chunks() {
+        // 回归：stop 串跨 chunk 拼出，其起点落在已发送内容之内（sent_len > pos）。
+        // 修复前 `&buffer[sent_len..pos]` 反向切片直接 panic（begin > end）。
+        let chunks = vec![Ok(content_chunk("中文abcSTO")), Ok(content_chunk("Pxyz"))];
+        let out: Vec<_> = StopDetectStream {
+            inner: futures::stream::iter(chunks),
+            stop: vec!["STOP".to_string()],
+            stopped: false,
+            sent_len: 0,
+            buffer: String::new(),
+            include_obfuscation: false,
+        }
+        .collect()
+        .await;
+
+        let text: String = out
+            .into_iter()
+            .map(Result::unwrap)
+            .filter_map(|c| c.choices.into_iter().next())
+            .filter_map(|c| c.delta.content)
+            .collect();
+        // 第一段已整段发出（当时 stop 尚未出现），第二段补齐 "STOP" 时其起点在已发送内容之中，
+        // 因此第二段无新内容可发；关键是不得 panic。
+        assert_eq!(text, "中文abcSTO");
+    }
+
+    fn content_chunk(content: &str) -> ChatCompletionsResponseChunk {
+        ChatCompletionsResponseChunk {
+            id: "chatcmpl-test".into(),
+            object: "chat.completion.chunk",
+            created: 0,
+            model: "deepseek-default".into(),
+            choices: vec![ChunkChoice {
+                index: 0,
+                delta: Delta {
+                    content: Some(content.to_string()),
+                    ..Default::default()
+                },
+                finish_reason: None,
+                logprobs: None,
+            }],
+            usage: None,
+            service_tier: None,
+            system_fingerprint: None,
+        }
     }
 
     #[tokio::test]
