@@ -75,6 +75,8 @@ mod tests {
             &req.model,
             req.reasoning_effort.as_deref(),
             req.web_search_options.as_ref(),
+            // 测试辅助：沿用与生产相同的默认值
+            crate::config::DsCoreSection::default().default_search_enabled,
         )
         .map_err(OpenAIAdapterError::BadRequest)?;
 

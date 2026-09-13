@@ -94,6 +94,17 @@ port = 22217
 # tool_call.extra_starts = ["<|tool_call_begin|>", "<tool_calls>", "<tool_call>"]
 # tool_call.extra_ends = ["<|tool_call_end|>", "</tool_calls>", "</tool_call>"]
 
+# ── 搜索模式默认值 ─────────────────────────────────────────────────────
+#
+# 请求未携带 web_search_options 时，是否默认开启 DeepSeek 的搜索模式。
+# 搜索模式会让上游注入更强的系统提示词（联网检索）。
+#
+#   true （默认）—— 保持历史行为：始终开启
+#   false        —— 严格遵循 OpenAI 语义：未传即关闭，不注入搜索提示词
+#
+# 显式传入 web_search_options 时，无论该值为何都会开启搜索。
+# default_search_enabled = true
+
 # ── Responses API 上下文缓存（POST /v1/responses）──────────────────────
 #
 # OpenAI Responses API 用 `previous_response_id` 维持多轮上下文。

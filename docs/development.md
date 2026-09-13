@@ -344,3 +344,58 @@ just e2e-basic --report result.json
 **结论边界**：上述对比使用不同账号、不同时间点，**不足以证明因果**。
 可以确定的是「单账号 + 低并发 + 当前 ChatML 注入」这一组合在当前时段是安全的；
 高频并发是否触发禁言，仍建议遵循「并发数 = 账号数 ÷ 2」并避免连续压测同一账号。
+
+
+## Session 生命周期与「每请求新建 session」的取舍
+
+### 当前行为
+
+正常路径（`v0_chat_once`）每次请求都会：
+
+```
+create_session → (可选上传文件) → create_pow_challenge → completion → ... → delete_session
+```
+
+### 为什么看起来像风控指纹
+
+真实网页端会复用一个会话发很多条消息；本代理表现为同一 `device_id` 下大量
+「只含一条消息的短命 session」。这被怀疑是自动化特征之一。
+
+### 为什么**没有**改成 session 复用（经代码验证）
+
+分块路径（`v0_chat_oversized_chunk`）通过 `parent_message_id` 串联多个 chunk：
+
+```rust
+let mut parent_message_id: Option<i64> = None;
+for (i, chunk) in chunks[..chunks.len()-1].iter().enumerate() {
+    let payload = CompletionPayload { chat_session_id, parent_message_id, .. };
+    // ...
+    parent_message_id = Some(stop_id);
+}
+```
+
+这证明**上游 session 会累积对话上下文**。而正常路径发送的是
+`parent_message_id: None` + **已包含完整对话的 prompt**。两者结合意味着：
+
+> 若跨 API 请求复用同一个 session，本轮的模型会同时看到
+> 「上一轮请求的对话」+「本轮完整对话」。
+
+后果有两层，第二层是阻断性的：
+
+1. **正确性**：模型看到重复/无关的历史，回答质量下降
+2. **隐私（阻断项）**：账号池是多请求共享的。用户 A 的对话内容会残留在 session 中，
+   并被用户 B 的请求读取 —— 这是跨用户数据泄漏
+
+在 `project` 采用 session 复用的前提下，必须先有一个可靠的「清空 session 上下文」
+或「按调用方隔离 session」的机制；上游 `chat_session` API 未提供清空能力
+（`update_title` 不能用，且删除后重建等于现状）。
+
+### 结论
+
+**不实现 session 复用。** 若未来上游提供会话清空能力，可重新评估。
+
+### 已做的替代改进
+
+- 修复了 `?` 提前返回导致 session **未被删除** 的真实泄漏（见 `SessionGuard`）——
+  泄漏会让孤儿会话持续累积，这本身也是比「短命会话」更异常的特征
+- `dev` 日志会打印 `session guard deleting orphan session`，便于观察泄漏是否复现

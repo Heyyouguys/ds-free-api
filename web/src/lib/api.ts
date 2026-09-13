@@ -187,6 +187,7 @@ export interface DsCoreConfig {
   input_character_limits: number[];
   model_aliases: string[];
   tool_call: ToolCallTagConfig;
+  default_search_enabled: boolean;
   responses_store_capacity: number;
   responses_store_ttl_secs: number;
 }
@@ -228,6 +229,7 @@ const DEFAULTS = {
   maxChars: 2621440,
   responsesStoreCapacity: 256,
   responsesStoreTtlSecs: 3600,
+  defaultSearchEnabled: true,
 } as const;
 
 /**
@@ -276,6 +278,10 @@ export function normalizeConfig(raw: any): FullConfig {
         extra_starts: ['<|tool_call_begin|>', '<tool_calls>', '<tool_call>'],
         extra_ends: ['<|tool_call_end|>', '</tool_calls>', '</tool_call>'],
       },
+      default_search_enabled:
+        typeof core.default_search_enabled === 'boolean'
+          ? core.default_search_enabled
+          : DEFAULTS.defaultSearchEnabled,
       responses_store_capacity:
         core.responses_store_capacity ?? DEFAULTS.responsesStoreCapacity,
       responses_store_ttl_secs:

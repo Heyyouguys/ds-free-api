@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Lock,
+  Search,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useTranslation } from 'react-i18next';
@@ -474,7 +475,39 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* ── 5. Responses API Context Cache ────────────────────────── */}
+      {/* ── 5. Search Mode Default ────────────────────────────────── */}
+      <Card className="border shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <Search className="h-4 w-4 text-primary" />
+            <span>{t('settings.searchMode')}</span>
+          </CardTitle>
+          <CardDescription className="text-xs">
+            {t('settings.searchModeDesc')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-2">
+          <label
+            htmlFor="set-default-search"
+            className="flex items-center gap-3 cursor-pointer select-none"
+          >
+            <input
+              id="set-default-search"
+              type="checkbox"
+              checked={config.ds_core.default_search_enabled}
+              onChange={(e) =>
+                update(['ds_core', 'default_search_enabled'], e.target.checked)
+              }
+              className="h-4 w-4 rounded border-input accent-primary cursor-pointer"
+            />
+            <span className="text-xs font-mono">
+              default_search_enabled = {String(config.ds_core.default_search_enabled)}
+            </span>
+          </label>
+        </CardContent>
+      </Card>
+
+      {/* ── 6. Responses API Context Cache ────────────────────────── */}
       <Card className="border shadow-sm">
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-semibold flex items-center gap-2">

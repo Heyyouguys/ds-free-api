@@ -23,6 +23,64 @@ const TAG_START: &str = "<｜";
 const TAG_END: &str = "｜>";
 const SESSION_HISTORY_FILE: &str = "EMPTY.txt";
 
+// ── Session 泄漏防护 ──────────────────────────────────────────────────
+
+/// 临时 session 的 RAII 守卫
+///
+/// 每个 session 都占用服务端资源，「创建后不删除」会留下大量孤儿会话
+/// （既是资源泄漏，也是风控可见的异常行为）。
+///
+/// 早期实现在每条错误路径上手写 `delete_session`，但 `?` 传播会直接跳过，
+/// 例如分块路径的 `wait_ready_and_update(..).await?` 与 `wait_close(..).await?`。
+/// 因此改为守卫式：拿到 session 后删除责任即交给守卫，
+/// 正常路径用 [`SessionGuard::disarm`] 把责任移交给 `SessionHandle`。
+struct SessionGuard {
+    client: crate::accounts::DsClient,
+    token: String,
+    session_id: String,
+    armed: bool,
+}
+
+impl SessionGuard {
+    fn new(client: crate::accounts::DsClient, token: &str, session_id: &str) -> Self {
+        Self {
+            client,
+            token: token.to_string(),
+            session_id: session_id.to_string(),
+            armed: true,
+        }
+    }
+
+    /// 放弃清理责任（session 已交由 `SessionHandle` 在流结束时删除）
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        // Drop 不能 await；与 SessionHandle::cleanup 一致，spawn 到运行时
+        let client = self.client.clone();
+        let token = self.token.clone();
+        let session_id = self.session_id.clone();
+        log::debug!(
+            target: "ds_core::accounts",
+            "session guard deleting orphan session: id={}", session_id
+        );
+        tokio::spawn(async move {
+            if let Err(e) = client.delete_session(&token, &session_id).await {
+                log::warn!(
+                    target: "ds_core::accounts",
+                    "delete_session failed for {}: {}", session_id, e
+                );
+            }
+        });
+    }
+}
+
 // ── 公开类型 ──────────────────────────────────────────────────────────
 
 /// 文件载荷
@@ -191,6 +249,9 @@ impl Chat {
                 return Err(e);
             }
         };
+        // 从这里起，任何提前返回都由守卫负责删除 session（兜底 `?` 传播的路径）
+        let mut session_guard =
+            SessionGuard::new(self.accounts.client_clone().await, &token, &session_id);
 
         // 3. 按 75% limit 切分 prompt
         let limit = self.input_character_limit_for(&req.model_type);
@@ -208,7 +269,6 @@ impl Chat {
                 Ok(h) => h,
                 Err(e) => {
                     self.accounts.mark_error(&account_id);
-                    let _ = self.accounts.delete_session(&token, &session_id).await;
                     return Err(e);
                 }
             };
@@ -232,7 +292,6 @@ impl Chat {
                 Ok(s) => s,
                 Err(e) => {
                     self.accounts.mark_error(&account_id);
-                    let _ = self.accounts.delete_session(&token, &session_id).await;
                     return Err(e);
                 }
             };
@@ -276,7 +335,6 @@ impl Chat {
             Ok(h) => h,
             Err(e) => {
                 self.accounts.mark_error(&account_id);
-                let _ = self.accounts.delete_session(&token, &session_id).await;
                 return Err(e);
             }
         };
@@ -300,7 +358,6 @@ impl Chat {
             Ok(s) => s,
             Err(e) => {
                 self.accounts.mark_error(&account_id);
-                let _ = self.accounts.delete_session(&token, &session_id).await;
                 return Err(e);
             }
         };
@@ -387,7 +444,6 @@ impl Chat {
                     "req={} hint 错误: {}", request_id, hint_detail
                 );
             }
-            let _ = self.accounts.delete_session(&token, &session_id).await;
             log::debug!(
                 target: "ds_core::accounts",
                 "req={} hint 后清理 session: id={}", request_id, session_id
@@ -416,6 +472,9 @@ impl Chat {
         // 用原始 buf 重建流
         let stream =
             futures::stream::once(futures::future::ready(Ok(Bytes::from(buf)))).chain(raw_stream);
+
+        // session 生命周期移交给 SessionHandle（流结束时删除）
+        session_guard.disarm();
 
         Ok(ChatResponse {
             stream: Box::pin(ResponseStream::new(
@@ -474,6 +533,9 @@ impl Chat {
                 return Err(e);
             }
         };
+        // 从这里起，任何提前返回都由守卫负责删除 session
+        let mut session_guard =
+            SessionGuard::new(self.accounts.client_clone().await, &token, &session_id);
         log::debug!(
             target: "ds_core::accounts",
             "req={} 创建 session: id={}", request_id, session_id
@@ -649,7 +711,6 @@ impl Chat {
                     "req={} hint 错误: {}", request_id, hint_detail
                 );
             }
-            let _ = self.accounts.delete_session(&token, &session_id).await;
             log::debug!(
                 target: "ds_core::accounts",
                 "req={} hint 后清理 session: id={}", request_id, session_id
@@ -678,6 +739,9 @@ impl Chat {
         // 9. 用原始 buf 重建流
         let stream =
             futures::stream::once(futures::future::ready(Ok(Bytes::from(buf)))).chain(raw_stream);
+
+        // session 生命周期移交给 SessionHandle（流结束时删除）
+        session_guard.disarm();
 
         Ok(ChatResponse {
             stream: Box::pin(ResponseStream::new(

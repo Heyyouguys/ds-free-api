@@ -4,9 +4,54 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.4.0] - 2026-09-13
+
+幂等性与架构审查：修复 session 泄漏、统计竞态、CORS 失败安全、模型 ID 一致性，
+并把此前形同虚设的搜索开关落实为可配置项。经代码验证后**放弃** session 复用方案（见下）。
+
+### Added
+
+- **`default_search_enabled` 配置项**：请求未携带 `web_search_options` 时是否默认开启搜索模式。
+  默认 `true` 保持历史行为；设为 `false` 则严格遵循 OpenAI 语义（未传即关闭），
+  可避免注入 DeepSeek 的搜索系统提示词。管理面板「设置」页新增开关，三语言同步
+- **`SessionGuard`（RAII）**：临时 session 的删除责任由守卫承担，
+  正常路径 `disarm()` 移交 `SessionHandle`；`ds_core` 日志会打印
+  `session guard deleting orphan session` 便于观测
+- `resolver::resolve()` / `models` 的单元测试（搜索开关、大小写、别名、去重、往返一致性）
 
 ### Fixed
+
+- **幂等性 / 资源泄漏：session 未删除**
+  分块路径用 `wait_ready_and_update(..).await?` 与 `wait_close(..).await?` 直接传播错误，
+  跳过了手写的 `delete_session`，导致孤儿会话在上游累积。
+  改为 RAII 守卫后，所有提前返回路径都被覆盖；同时删除了 6 处重复的手写清理。
+  （注：实测 39 次 session 创建中守卫触发 20 次，均为**旧代码已手动处理**的路径 ——
+  该改动把「依赖每处手写记得清理」变成「结构上不可能遗漏」，并为已识别的 `?` 路径兜底）
+- **幂等性 / 统计重复计数：Anthropic `output_tokens` 用 `fetch_add`**
+  `message_delta.usage.output_tokens` 按 Anthropic 规范是**累计值**
+  （MessageDeltaUsage 原文 "cumulative number of output tokens"），
+  累加会在事件重复时重复计数；改为 `store` 整体覆盖
+- **幂等性 / 持久化乱序覆盖：`Stats::persist_now()` 并发写盘**
+  原实现每次 spawn 一个异步写盘任务，可能**乱序完成**导致旧快照覆盖新快照
+  （stats.json 数值回退），且 `write_json_file` 使用固定的 `stats.json.tmp`
+  会被并发写互相踩踏。现在用 `tokio::sync::Mutex` 串行化，
+  并把快照读取移到**持锁之后**，保证最后一次写入必然最新
+- **中间件 / CORS 失败安全**：配置了白名单但无一项能解析成合法 Origin 时，
+  旧实现静默回退到 `permissive`（实际完全放开，与用户意图相反）；
+  现在回退到**拒绝所有跨域来源**并打警告，同时在警告信息里提示缺少 scheme 这类常见错误
+- **中间件 / CORS 缺头**：`allow_headers` 未包含 `x-api-key` 与 `anthropic-version`，
+  浏览器端 Anthropic 客户端会被 preflight 拒绝
+- **模型层 / 架构：`list()` 与 `get()` 的 ID 生成逻辑重复**
+  两处各写一遍，已产生真实缺陷：别名查询返回**小写化后**的 ID，
+  而列表返回别名的**原始大小写**，同一模型有两个 ID。
+  现在统一由 `model_ids()` 生成有序 ID 集合，两者共用，并新增往返一致性回归测试。
+  同时处理了空白别名、`deepseek-` 前缀重复、别名数组短于 `model_types` 等边界
+- **模型层 / 死开关**：`resolver::resolve()` 里
+  `web_search_options.map(|_| true).unwrap_or(true)` 恒为 `true`，
+  `web_search_options` 传与不传毫无区别；文档却声称「省略即关闭」。
+  这是自初始提交起就存在的死代码，现已落实为真实开关
+
+### Fixed（文档）
 
 - **`AGENTS.md` 的账号初始化流程描述有误**（据代码核实）：
   - 第 4 步写作 `update_title`，但该函数在 `ds_core/src/accounts/client.rs` 中
@@ -18,6 +63,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     （`start_recovery_task`，每 60s 重登 `Error` 账号，连续失败达 `MAX_ERROR_COUNT`=3 次转 `Invalid`）
   - 同时把「`device_id` 可选」更正为**必填**：实测不带 `device_id` 登录直接被风控拒绝
     （`RISK_DEVICE_DETECTED`，biz_code 11）
+
+### Changed
+
+- **管理面板配置接口**：`GET /admin/api/config` 的 `ds_core` 新增
+  `default_search_enabled`（修复「后端有字段、前端读不到」的同类契约缺口；
+  契约测试同步扩展）
+- `config.example.toml` 与 `docker/config.example.toml` 补充搜索模式说明
+- `AGENTS.md`：修正 Web search 能力开关描述；补充配置示例同步要求
+- `docs/development.md`：新增「Session 生命周期与每请求新建 session 的取舍」章节
+
+### 决策记录：不实现 session 复用
+
+曾计划通过复用 session 减少「每请求 create/delete」的风控指纹，**经代码验证后放弃**：
+
+分块路径用 `parent_message_id` 串联 chunk，证明**上游 session 会累积对话上下文**；
+而正常路径发送 `parent_message_id: None` + 已含完整对话的 prompt。两者叠加意味着
+跨请求复用 session 会让模型同时看到「上一轮对话」+「本轮完整对话」。
+
+后果不止是回答质量下降 —— 账号池为多请求共享，**用户 A 的对话会残留在 session 中
+并被用户 B 读取**，构成跨用户数据泄漏。上游未提供会话清空能力，因此无法在复用前提下
+消除该风险。详见 `docs/development.md`。
+
+### 测试结果
+
+- `cargo test --workspace --all-targets`：**209 passed / 0 failed**（v0.3.0 为 198）
+- `cargo clippy --all-targets -- -D warnings`、`cargo fmt --all --check`：通过
+- `bun run typecheck` / `lint` / `check:locales` / `build`：通过
+- 实机验证（真实账号）：
+  - 模型 ID：`MyAlias` / `myalias` / `MYALIAS` 均返回列表中的规范拼写 `MyAlias`；
+    列表无重复 ID
+  - `default_search_enabled=false` 时管理接口正确回读，推理仍返回 200
+  - Responses API 7/7、basic 套件 12/14（2 项为上游 `code=7 rate limit reached`
+    文件上传限流，属已知限制；同轮的 Anthropic 文件/图片上传均成功）
+  - 累计约 216 次请求后账号**仍未被禁言**
 
 ## [0.3.0] - 2026-09-13
 

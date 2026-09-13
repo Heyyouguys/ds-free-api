@@ -50,6 +50,8 @@ pub struct OpenAIAdapter {
     max_input_tokens: tokio::sync::RwLock<Vec<u32>>,
     max_output_tokens: tokio::sync::RwLock<Vec<u32>>,
     tag_config: tokio::sync::RwLock<Arc<response::TagConfig>>,
+    /// 未显式传 `web_search_options` 时是否默认开启搜索模式
+    default_search_enabled: std::sync::atomic::AtomicBool,
     /// 缓存的 tiktoken BPE 编码器（避免每次请求重建）
     bpe: Option<Arc<tiktoken_rs::CoreBPE>>,
 }
@@ -95,6 +97,9 @@ impl OpenAIAdapter {
             tag_config: tokio::sync::RwLock::new(Arc::new(response::TagConfig::from_config(
                 &config.ds_core.tool_call,
             ))),
+            default_search_enabled: std::sync::atomic::AtomicBool::new(
+                config.ds_core.default_search_enabled,
+            ),
             bpe,
         })
     }
@@ -151,6 +156,7 @@ impl OpenAIAdapter {
             &req.model,
             req.reasoning_effort.as_deref(),
             req.web_search_options.as_ref(),
+            self.default_search(),
         )
         .map_err(OpenAIAdapterError::BadRequest)?;
 
@@ -265,6 +271,12 @@ impl OpenAIAdapter {
         Err(CoreError::Overloaded)
     }
 
+    /// 读取「默认是否开启搜索模式」开关
+    fn default_search(&self) -> bool {
+        self.default_search_enabled
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// GET /v1/models
     pub async fn list_models(&self) -> types::OpenAIModelList {
         let model_types = self.model_types.read().await;
@@ -299,6 +311,7 @@ impl OpenAIAdapter {
             &chat_req.model,
             chat_req.reasoning_effort.as_deref(),
             chat_req.web_search_options.as_ref(),
+            self.default_search(),
         )
         .map_err(OpenAIAdapterError::BadRequest)?;
         let ds_req = ds_core::ChatRequest {
@@ -475,6 +488,10 @@ impl OpenAIAdapter {
         *self.tag_config.write().await = Arc::new(response::TagConfig::from_config(
             &new_config.ds_core.tool_call,
         ));
+        self.default_search_enabled.store(
+            new_config.ds_core.default_search_enabled,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         // Rebuild DsClient if needed (deepseek/proxy changes)
         let core_cfg = DsCoreConfig {
             api_base: new_config.ds_core.api_base.clone(),

@@ -362,7 +362,10 @@ native `<｜Role｜>` tags via `parse_native_blocks()`.
 
 Request fields mapped in `request/resolver.rs`:
 - **Reasoning**: defaults to `"high"` (on). Set `"none"` to disable.
-- **Web search**: `web_search_options` enables; omitted = off.
+- **Web search**: `web_search_options` explicitly enables it. When omitted, the
+  `default_search_enabled` config flag decides (`true` by default, preserving the
+  historical always-on behaviour; set `false` for strict OpenAI semantics). Prompt text
+  containing an HTTP URL also forces search mode on.
 - **File upload**: data URL content parts → auto upload to session; HTTP URLs → search mode.
 - **Response format**: `response_format` → JSON/schema text injection in prompt.
 - **Login `device_id`**: optional per-account field forwarded into the `/users/login` payload;
@@ -556,7 +559,7 @@ Follow `docs/code-style.md`:
 |------|----------|-------|
 | env vars | `src/config.rs` + `main.rs` | `DS_CONFIG_PATH` / `-c`, `DS_DATA_DIR` for data directory |
 | Config loading | `src/config.rs` | Single unified entry, `-c` flag support |
-| Config reference | `config.example.toml` | All fields documented with examples (authoritative) |
+| Config reference | `config.example.toml` | All fields documented with examples (authoritative); `docker/config.example.toml` must stay in sync (enforced by `scripts/check-config-drift.sh`) |
 | DeepSeek chat flow | `ds_core/src/` | accounts → pow → completions → client |
 | Chat orchestration + file upload | `ds_core/src/chat/request.rs` + `response.rs` | `v0_chat()`, history splitting, upload retry, `GuardedStream` |
 | OpenAI request parsing | `src/openai_adapter/request/` | normalize → tools → files → prompt → resolver |

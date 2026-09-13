@@ -170,7 +170,9 @@
     "responsesStore": "Cache Konteks Responses API",
     "responsesStoreDesc": "Cache dalam proses yang menopang previous_response_id. Entri dihapus setelah TTL atau saat kapasitas terlampaui.",
     "storeCapacity": "Kapasitas Cache",
-    "storeTtl": "TTL (detik)"
+    "storeTtl": "TTL (detik)",
+    "searchMode": "Mode Pencarian Default",
+    "searchModeDesc": "Apakah pencarian web aktif saat permintaan tidak menyertakan web_search_options. Menonaktifkan akan mengikuti semantik OpenAI secara ketat."
   },
   "logs": {
     "title": "Log",

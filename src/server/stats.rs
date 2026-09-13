@@ -74,6 +74,12 @@ pub struct Stats {
     pub start_time: Instant,
     /// 上次持久化时的 total_requests 值
     last_persisted: AtomicU64,
+    /// 持久化串行化锁
+    ///
+    /// `persist_now()` 会 spawn 异步写盘；若不加锁，多次 spawn 可能**乱序完成**，
+    /// 导致较旧的快照覆盖较新的（stats.json 回退），而 `write_json_file` 使用固定
+    /// 的 `stats.json.tmp` 文件名，并发写还会互相踩踏。
+    persist_lock: tokio::sync::Mutex<()>,
     /// 持久化存储
     store: Option<Arc<StoreManager>>,
     /// 按模型拆分的统计
@@ -163,6 +169,7 @@ impl Stats {
             total_completion_tokens: AtomicU64::new(completion_tokens),
             start_time: Instant::now(),
             last_persisted: AtomicU64::new(total_requests),
+            persist_lock: tokio::sync::Mutex::new(()),
             store,
             model_stats,
             key_stats,
@@ -220,7 +227,7 @@ impl Stats {
     }
 
     /// 记录一次请求完成
-    pub fn record_request(&self, success: bool, latency_ms: u64) {
+    pub fn record_request(self: &Arc<Self>, success: bool, latency_ms: u64) {
         self.total_requests.fetch_add(1, Ordering::Relaxed);
         if success {
             self.success_requests.fetch_add(1, Ordering::Relaxed);
@@ -233,7 +240,7 @@ impl Stats {
     }
 
     /// 检查是否需要持久化
-    fn maybe_persist(&self) {
+    fn maybe_persist(self: &Arc<Self>) {
         let total = self.total_requests.load(Ordering::Relaxed);
         let last = self.last_persisted.load(Ordering::Relaxed);
         if total - last >= PERSIST_INTERVAL
@@ -247,9 +254,20 @@ impl Stats {
     }
 
     /// 立即持久化当前统计（含模型/Key 维度 + 请求日志）
-    pub fn persist_now(&self) {
-        if let Some(ref store) = self.store {
-            let model_stats: HashMap<String, super::store::ModelStatsData> = self
+    ///
+    /// 串行化并「写入时取快照」：
+    /// - 多个并发调用按锁顺序执行，不会乱序覆盖（否则 stats.json 会回退到旧值）
+    /// - 快照在**持锁后**读取，因此最后一次写入必定是最新数据
+    /// - `write_json_file` 的 `stats.json.tmp` 也不会被并发写踩踏
+    pub fn persist_now(self: &Arc<Self>) {
+        let Some(store) = self.store.clone() else {
+            return;
+        };
+        let stats = Arc::clone(self);
+        tokio::spawn(async move {
+            let _guard = stats.persist_lock.lock().await;
+
+            let model_stats: HashMap<String, super::store::ModelStatsData> = stats
                 .model_stats
                 .iter()
                 .map(|r| {
@@ -263,7 +281,7 @@ impl Stats {
                     )
                 })
                 .collect();
-            let key_stats: HashMap<String, super::store::KeyStatsData> = self
+            let key_stats: HashMap<String, super::store::KeyStatsData> = stats
                 .key_stats
                 .iter()
                 .map(|r| {
@@ -283,7 +301,8 @@ impl Stats {
                 })
                 .collect();
             let logs = {
-                let guard = self.request_logs.lock().unwrap();
+                // 作用域内取锁，确保 std guard 不跨 await
+                let guard = stats.request_logs.lock().unwrap();
                 guard
                     .iter()
                     .map(|l| super::store::RequestLogData {
@@ -299,22 +318,19 @@ impl Stats {
                     .collect()
             };
             let st = super::store::StatsStore {
-                total_requests: self.total_requests.load(Ordering::Relaxed),
-                success_requests: self.success_requests.load(Ordering::Relaxed),
-                failed_requests: self.failed_requests.load(Ordering::Relaxed),
-                total_prompt_tokens: self.total_prompt_tokens.load(Ordering::Relaxed),
-                total_completion_tokens: self.total_completion_tokens.load(Ordering::Relaxed),
+                total_requests: stats.total_requests.load(Ordering::Relaxed),
+                success_requests: stats.success_requests.load(Ordering::Relaxed),
+                failed_requests: stats.failed_requests.load(Ordering::Relaxed),
+                total_prompt_tokens: stats.total_prompt_tokens.load(Ordering::Relaxed),
+                total_completion_tokens: stats.total_completion_tokens.load(Ordering::Relaxed),
                 model_stats,
                 key_stats,
                 request_logs: logs,
             };
-            let store = store.clone();
-            tokio::spawn(async move {
-                if let Err(e) = store.save_stats(&st).await {
-                    log::warn!(target: "stats", "persist failed: {}", e);
-                }
-            });
-        }
+            if let Err(e) = store.save_stats(&st).await {
+                log::warn!(target: "stats", "persist failed: {}", e);
+            }
+        });
     }
 
     /// 生成统计快照

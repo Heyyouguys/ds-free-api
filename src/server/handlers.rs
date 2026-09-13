@@ -477,7 +477,11 @@ pub(crate) async fn anthropic_messages(
                     if let Ok(c) = chunk
                         && let Some(ot) = c.output_tokens()
                     {
-                        ct_ref.fetch_add(u64::from(ot), std::sync::atomic::Ordering::Relaxed);
+                        // Anthropic 的 `message_delta.usage.output_tokens` 是
+                        // **累计**值（MessageDeltaUsage 的官方描述为
+                        // "cumulative number of output tokens"），不是增量。
+                        // 用 fetch_add 会在事件重复时重复计数，必须整体覆盖。
+                        ct_ref.store(u64::from(ot), std::sync::atomic::Ordering::Relaxed);
                     }
                 })
                 .map(|chunk| match chunk {

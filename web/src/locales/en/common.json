@@ -170,7 +170,9 @@
     "responsesStore": "Responses API Context Cache",
     "responsesStoreDesc": "In-process cache backing previous_response_id. Entries are evicted after the TTL or when capacity is exceeded.",
     "storeCapacity": "Cache Capacity",
-    "storeTtl": "TTL (seconds)"
+    "storeTtl": "TTL (seconds)",
+    "searchMode": "Default Search Mode",
+    "searchModeDesc": "Whether web search is enabled when the request omits web_search_options. Disabling strictly follows the OpenAI semantics and avoids injecting DeepSeek search system prompts."
   },
   "logs": {
     "title": "Logs",

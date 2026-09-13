@@ -172,6 +172,16 @@ fn build_router(state: AppState, cors_origins: Vec<String>) -> Router {
         .layer(build_cors_layer(&cors_origins))
 }
 
+/// 构建 CORS 层
+///
+/// `cors_origins` 的语义：
+/// - `["*"]` → 完全放开（`permissive`）
+/// - 其余 → 严格白名单
+///
+/// **失败安全**：若配置了白名单但其中没有任何一项能解析成合法 `HeaderValue`
+/// （典型是配错成 `"localhost:22217"` 这种缺少 scheme 的写法），旧实现会静默回退到
+/// `permissive` —— 用户以为自己限制了来源，实际完全放开。现在改为回退到
+/// **拒绝所有跨域来源** 并打出警告，让配置错误显式暴露。
 fn build_cors_layer(origins: &[String]) -> CorsLayer {
     use axum::http::Method;
     use axum::http::header;
@@ -180,13 +190,29 @@ fn build_cors_layer(origins: &[String]) -> CorsLayer {
         return CorsLayer::permissive();
     }
 
-    let allowed: Vec<axum::http::HeaderValue> = origins
-        .iter()
-        .filter_map(|o| o.parse::<axum::http::HeaderValue>().ok())
-        .collect();
+    let mut allowed: Vec<axum::http::HeaderValue> = Vec::with_capacity(origins.len());
+    for origin in origins {
+        match origin.parse::<axum::http::HeaderValue>() {
+            Ok(value) => allowed.push(value),
+            Err(e) => {
+                log::warn!(
+                    target: "http::server",
+                    "cors_origins 中的 {:?} 不是合法的 Origin（需要包含 scheme，如 http://localhost:22217）：{}",
+                    origin, e
+                );
+            }
+        }
+    }
 
     if allowed.is_empty() {
-        return CorsLayer::permissive();
+        log::error!(
+            target: "http::server",
+            "cors_origins 未解析出任何合法 Origin，已禁用跨域访问（如需放开请显式设置 cors_origins = [\"*\"]）"
+        );
+        // 空 allow_origin 列表 = 不放行任何跨域来源（fail closed）
+        return CorsLayer::new()
+            .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+            .allow_headers([header::CONTENT_TYPE]);
     }
 
     CorsLayer::new()
@@ -201,6 +227,9 @@ fn build_cors_layer(origins: &[String]) -> CorsLayer {
         .allow_headers([
             header::AUTHORIZATION,
             header::CONTENT_TYPE,
+            // 浏览器端 Anthropic 客户端会带这两个头；缺失会被 preflight 拒绝
+            axum::http::HeaderName::from_static("x-api-key"),
+            axum::http::HeaderName::from_static("anthropic-version"),
             axum::http::HeaderName::from_static("x-request-id"),
         ])
 }

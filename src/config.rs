@@ -66,6 +66,12 @@ pub struct DsCoreSection {
     /// 工具调用标签配置（自定义回退标签）
     #[serde(default)]
     pub tool_call: ToolCallTagConfig,
+    /// 未显式传入 `web_search_options` 时是否默认开启搜索模式（默认 true）
+    ///
+    /// `true` 保持历史行为（始终搜索）；设为 `false` 则严格遵循 OpenAI 语义
+    /// （未传即关闭），可减少 DeepSeek 侧的系统提示词注入。
+    #[serde(default = "default_search_enabled")]
+    pub default_search_enabled: bool,
     /// Responses API `previous_response_id` 缓存条数上限（进程内，默认 256）
     #[serde(default = "default_responses_store_capacity")]
     pub responses_store_capacity: usize,
@@ -212,6 +218,14 @@ fn default_max_output_tokens() -> Vec<u32> {
 /// 历史上 expert 的 163840 已过期（上游现已放开）。
 fn default_input_character_limits() -> Vec<u32> {
     vec![2_621_440]
+}
+
+/// 未传 `web_search_options` 时默认是否开启搜索模式。
+///
+/// 默认 `true`：与历史行为一致（此前 resolver 无条件返回 true）。
+/// 文档曾声称「省略即关闭」，但代码从未如此实现；这里把开关做实并保持兼容。
+fn default_search_enabled() -> bool {
+    true
 }
 
 /// Responses API 上下文缓存条数上限
@@ -427,6 +441,7 @@ impl Default for DsCoreSection {
             input_character_limits: default_input_character_limits(),
             model_aliases: Vec::new(),
             tool_call: ToolCallTagConfig::default(),
+            default_search_enabled: default_search_enabled(),
             responses_store_capacity: default_responses_store_capacity(),
             responses_store_ttl_secs: default_responses_store_ttl_secs(),
         }

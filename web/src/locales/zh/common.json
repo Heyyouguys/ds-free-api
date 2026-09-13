@@ -170,7 +170,9 @@
     "responsesStore": "Responses API 上下文缓存",
     "responsesStoreDesc": "支撑 previous_response_id 的进程内缓存。超过 TTL 或容量上限后条目会被淘汰。",
     "storeCapacity": "缓存容量",
-    "storeTtl": "存活秒数 (TTL)"
+    "storeTtl": "存活秒数 (TTL)",
+    "searchMode": "默认搜索模式",
+    "searchModeDesc": "请求未携带 web_search_options 时是否开启联网搜索。关闭后严格遵循 OpenAI 语义，并避免注入 DeepSeek 的搜索系统提示词。"
   },
   "logs": {
     "title": "日志",
