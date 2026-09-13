@@ -19,7 +19,6 @@ from runner import (
 )
 from openai import OpenAI
 from anthropic import Anthropic
-import httpx
 
 def main():
     config = load_config()
@@ -45,11 +44,12 @@ def main():
     models = args.models or ["deepseek-default", "deepseek-expert"]
 
     port = config["port"]
-    oai_client = OpenAI(base_url=f"http://127.0.0.1:{port}/v1", api_key=api_key)
+    # 同 runner.py：anthropic>=1.5 使用 httpx2，不能传 http_client
+    oai_client = OpenAI(base_url=f"http://127.0.0.1:{port}/v1", api_key=api_key, timeout=120)
     anth_client = Anthropic(
         base_url=f"http://127.0.0.1:{port}/anthropic", api_key=api_key,
         default_headers={"Authorization": f"Bearer {api_key}"},
-        http_client=httpx.Client(timeout=120),
+        timeout=120,
     )
 
     total_scenarios = len(all_scenarios)
