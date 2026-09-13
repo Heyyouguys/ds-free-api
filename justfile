@@ -8,9 +8,13 @@ check:
   cargo fmt --check      
   cargo check            
   cargo clippy -- -D warnings  
-  cargo audit --deny warnings
-  cargo outdated --exit-code 1 --root-deps-only
-  cargo outdated -p ds_core --exit-code 1 --root-deps-only
+  # 不加 --deny warnings：wreq / wreq-util 5.x 被上游 yank、lru 0.13 的 unsound 由 wreq 传递引入，
+  # 二者都无法在不升级到 wreq 6.0-rc 的前提下消除（详见 .cargo/audit.toml）。
+  # 真实漏洞仍然会导致非零退出，与 CI 的 actions-rust-lang/audit 行为一致。
+  cargo audit
+  # wreq 5.x 全量 yank 会让 cargo-outdated 解析失败，由包装脚本跳过该已知情况
+  scripts/check-outdated.sh
+  scripts/check-outdated.sh -p ds_core
   cargo machete          
 
 # Build + lint frontend (bun install --frozen-lockfile, bun run typecheck + build + lint)
