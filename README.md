@@ -118,18 +118,35 @@ Compose 配置见 [docker/docker-compose.yaml](./docker/docker-compose.yaml)。
 
 ## 模型映射
 
-`config.toml` 中 `model_types`（默认 `["default", "expert", "vision"]`）自动映射：
+> **⚠️ 上游已下线 expert / vision（2026-09）**
+>
+> `/api/v0/client/settings` 的 `model_configs` 明确显示：
+>
+> | model_type | 名称 | enabled | switchable |
+> |------------|------|---------|------------|
+> | `default` | 快速模式 | ✅ true | ✅ true |
+> | `expert` | 专家模式 | ❌ **false** | ❌ false |
+> | `vision` | 识图模式 | ❌ **false** | ❌ false |
+>
+> 即网页端已不再提供这两个模式的切换入口，**目前实际只有一个模型**。
+> 因此本项目默认只暴露 `deepseek-default`。expert / vision 的 API 仍能调用，
+> 但上游已标记为 disabled，启用后请求容易失败或行为不稳定。
+> 如确需启用，在 `config.toml` 中显式配置 `model_types`。
+
+`config.toml` 中 `model_types`（默认 `["default"]`）自动映射为 `deepseek-<type>`：
 
 | OpenAI 模型 ID     | DeepSeek 类型 |
 | ------------------ | ------------- |
 | `deepseek-default` | 快速模式      |
-| `deepseek-expert`  | 专家模式      |
-| `deepseek-vision`  | 视觉模式      |
+
+**模型名可以直接用裸名**：`default`（大小写不敏感）等价于 `deepseek-default`，
+方便 Claude Code / Codex 等把 `model` 设成简短名字的客户端（见 issue #99）。
 
 可选别名通过 `model_aliases` 按 index 对齐 `model_types`，默认无别名。空字符串被跳过：
 
 ```toml
-# model_aliases = ["", "deepseek-v4-pro"]  → deepseek-v4-pro 映射到 expert（index 1）
+# model_types    = ["default", "expert"]
+# model_aliases  = ["", "deepseek-v4-pro"]  → deepseek-v4-pro 映射到 expert（index 1）
 model_aliases = []
 ```
 Anthropic 兼容层使用相同的模型 ID，通过 `/anthropic/v1/messages` 调用。

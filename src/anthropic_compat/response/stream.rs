@@ -92,24 +92,13 @@ impl StreamState {
     fn handle_chunk(&mut self, chunk: ChatCompletionsResponseChunk) -> Vec<MessagesResponseChunk> {
         let mut events = Vec::new();
 
-        // 保活块 → 持续 thinking 块（不要独立块免干扰客户端）
+        // 保活块 → 发送协议规定的 `ping` 事件
+        //
+        // 早期实现把它转成 thinking 增量的字面文本 "tool_calls..."，
+        // 会直接出现在客户端的思考过程里（issue #76）。
+        // `ping` 是 Anthropic 官方协议中的合法事件，客户端会忽略其内容。
         if chunk.id == "chatcmpl-keepalive" && self.started {
-            if self.block_kind != BlockKind::Thinking {
-                events.extend(self.transition_to(BlockKind::Thinking));
-                events.push(MessagesResponseChunk::ContentBlockStart {
-                    index: self.block_index,
-                    content_block: ResponseContentBlock::Thinking {
-                        thinking: String::new(),
-                        signature: String::new(),
-                    },
-                });
-            }
-            events.push(MessagesResponseChunk::ContentBlockDelta {
-                index: self.block_index,
-                delta: ContentBlockDelta::Thinking {
-                    thinking: "tool_calls...".to_string(),
-                },
-            });
+            events.push(MessagesResponseChunk::Ping);
             return events;
         }
 
@@ -720,22 +709,19 @@ mod tests {
         assert_eq!(events[1].event_name(), "content_block_start");
         // text delta
         assert_eq!(events[2].event_name(), "content_block_delta");
-        // keepalive → transition: stop text, start thinking
-        assert_eq!(events[3].event_name(), "content_block_stop");
-        assert_eq!(events[4].event_name(), "content_block_start");
-        assert_eq!(events[5].event_name(), "content_block_delta");
-        // content arrives → transition: stop thinking, start new text
-        assert_eq!(events[6].event_name(), "content_block_stop");
-        assert_eq!(events[7].event_name(), "content_block_start");
-        assert_eq!(events[8].event_name(), "content_block_delta");
+        // keepalive → ping（不打断当前文本块）
+        assert_eq!(events[3].event_name(), "ping");
+        // 后续文本继续落在同一个文本块里
+        assert_eq!(events[4].event_name(), "content_block_delta");
         // finish: stop text + message_delta + message_stop
-        assert_eq!(events[9].event_name(), "content_block_stop");
-        assert_eq!(events[10].event_name(), "message_delta");
-        assert_eq!(events[11].event_name(), "message_stop");
+        assert_eq!(events[5].event_name(), "content_block_stop");
+        assert_eq!(events[6].event_name(), "message_delta");
+        assert_eq!(events[7].event_name(), "message_stop");
     }
 
+    /// 回归（issue #76）：保活不得注入 `tool_calls...` 之类的假思考文本。
     #[tokio::test]
-    async fn keepalive_thinking_chunk_has_tool_calls_text() {
+    async fn keepalive_emits_ping_not_fake_thinking() {
         let events = collect(vec![
             role_chunk("deepseek-default", "chatcmpl-5"),
             content_chunk("Hi"),
@@ -743,17 +729,23 @@ mod tests {
             finish_chunk("stop"),
         ])
         .await;
-        // keepalive emits thinking delta with "tool_calls..."
-        let keepalive_delta = &events[5];
-        if let MessagesResponseChunk::ContentBlockDelta { delta, .. } = keepalive_delta {
-            if let ContentBlockDelta::Thinking { thinking } = delta {
-                assert_eq!(thinking, "tool_calls...");
-            } else {
-                panic!("expected Thinking delta");
+
+        // 整个事件序列里不得出现被伪造的思考文本
+        for ev in &events {
+            if let MessagesResponseChunk::ContentBlockDelta { delta, .. } = ev
+                && let ContentBlockDelta::Thinking { thinking } = delta
+            {
+                assert!(
+                    !thinking.contains("tool_calls"),
+                    "保活不得注入假思考文本（issue #76），实际: {thinking:?}"
+                );
             }
-        } else {
-            panic!("expected ContentBlockDelta");
         }
+        // 保活必须产生协议合法的 ping 事件
+        assert!(
+            events.iter().any(|e| e.event_name() == "ping"),
+            "保活应产生 ping 事件"
+        );
     }
 
     #[tokio::test]

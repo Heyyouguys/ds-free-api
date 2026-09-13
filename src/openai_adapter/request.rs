@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn reasoning_and_search_flags() {
         let body = serde_json::json!({
-            "model": "deepseek-expert",
+            "model": "deepseek-default",
             "messages": [
                 { "role": "user", "content": "分析一下量子计算" }
             ],
@@ -152,6 +152,19 @@ mod tests {
         let req = parse_json(body).unwrap();
         assert!(req.thinking_enabled);
         assert!(req.search_enabled);
+    }
+
+    // 裸 model_type 名（不带 deepseek- 前缀）也应可解析，见 issue #99
+    #[test]
+    fn bare_model_type_name_is_accepted() {
+        for name in ["default", "DEFAULT", "deepseek-default"] {
+            let body = serde_json::json!({
+                "model": name,
+                "messages": [{ "role": "user", "content": "hi" }]
+            });
+            let req = parse_json(body).unwrap_or_else(|e| panic!("模型 {name} 应被接受: {e}"));
+            assert!(req.prompt.contains("hi"), "模型 {name} 应生成 prompt");
+        }
     }
 
     // normalize 错误场景

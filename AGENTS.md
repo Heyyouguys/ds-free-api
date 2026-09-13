@@ -241,8 +241,9 @@ Each `v0_chat()` call creates a dedicated session, uploads multi-turn history as
 
 The `Chat` module dispatches across 3 request paths based on prompt size:
 - **Normal path** (`v0_chat_once`): prompt fits within model limit, sent directly
-- **History-split path** (`v0_chat_oversized_file`): oversize default model, splits history into uploaded files
-- **Chunked path** (`v0_chat_oversized_chunk`): oversize expert model, uses chunked completion with file writes
+- **History-split path** (`v0_chat_oversized_file`): oversize non-expert model, splits history into uploaded files
+- **Chunked path** (`v0_chat_oversized_chunk`): oversize `expert` model, uses chunked completion with file writes
+  (only reachable if `expert` is explicitly enabled in `model_types`; upstream currently marks it `enabled: false`)
 
 ### Single-Struct Pipeline (OpenAI)
 
@@ -275,7 +276,7 @@ All stream wrappers use `pin_project_lite::pin_project!` macro and implement `St
 
 ### Tool Calls via XML
 
-Tool definitions are injected as natural language into the prompt inside a `<think>` block (see `docs/deepseek-prompt-injection.md`). Response `<tool_calls>` XML is parsed back into structured JSON via `ToolCallStream`:
+Tool definitions are injected as **plain System message content, once** (see `docs/deepseek-prompt-injection.md`). Response tool-call XML is parsed back into structured JSON via `ToolCallStream`:
 
 1. **Sliding window detector** accumulates content chunks and looks for `<tool_calls>` XML tags
 2. **Fuzzy character normalization**: U+FF5C→|, U+2581→_
@@ -322,7 +323,12 @@ Request fields mapped in `request/resolver.rs`:
 
 ### Oversized Prompt Fallback
 
-When the prompt (after history splitting) exceeds the completion endpoint's limit, the system falls back to chunked completion (`/api/v0/chat/completion` with file upload) or a dedicated vision model for image-heavy requests. The `oversized_prompt` config section controls threshold and model routing. Implemented in `ds_core/src/chat/request.rs` alongside the normal `v0_chat()` flow.
+When the prompt exceeds `input_character_limits[type] * 75 / 100`, `v0_chat()` dispatches to a
+fallback path in `ds_core/src/chat/request.rs`: `expert` uses chunked completion
+(`v0_chat_oversized_chunk`), every other type uses history-split file upload
+(`v0_chat_oversized_file`). There is no `oversized_prompt` config section — the threshold
+comes from `input_character_limits`, which upstream currently reports as 2621440 for all
+model types.
 
 ### Anthropic Compatibility Layer
 
@@ -367,11 +373,18 @@ The `x-ds-account` HTTP response header carries the account identifier upstream.
 | `GET /anthropic/v1/models` | `handlers::anthropic_list_models` | List models (Anthropic format) |
 | `GET /anthropic/v1/models/{id}` | `handlers::anthropic_get_model` | Get model (Anthropic format) |
 
-Optional Bearer auth via `[[api_keys]]` in config; no auth when empty.|
+Bearer auth is **always enforced** on `/v1/*` and `/anthropic/*` via `[[api_keys]]`.
+If `api_keys` is empty no token can validate, so every API request returns
+`401 invalid_api_token` — create a key in the admin panel (or `[[api_keys]]`) first.
 
 ### Model ID Mapping
 
-`model_types` in `[ds_core]` config (default: `["default", "expert", "vision"]`) maps to OpenAI model ID `deepseek-{type}` (e.g., `deepseek-default`, `deepseek-expert`, `deepseek-vision`). Anthropic compat uses the same IDs.
+`model_types` in `[ds_core]` config (default: `["default"]`) maps to OpenAI model ID
+`deepseek-{type}`. Upstream's `/api/v0/client/settings` reports `default` as the only
+`enabled`/`switchable` model type — `expert` and `vision` are both `enabled: false`, so the
+default config exposes `deepseek-default` only. `model_registry()` also registers the bare
+`{type}` name (`default`), which Claude Code / Codex rely on (issue #99).
+Anthropic compat uses the same IDs.
 
 ---
 
@@ -454,7 +467,9 @@ Follow `docs/code-style.md`:
 | Tool call parse failure | No `tool_calls` in response, raw XML visible | Model output a tag variant not in the parse list. Add fallback `extra_starts`/`extra_ends` in `config.toml` `[ds_core]` |
 | Rate limited | Repeated `CoreError::Overloaded` | Add more accounts or reduce concurrency. 6x exponential backoff handles transient spikes |
 | Session errors mid-stream | `invalid message id`, session not found | Usually handled by `GuardedStream::drop` cleanup. If persistent, check concurrent access to same account |
-| Oversized prompt rejected | `413` or truncation errors | Prompt exceeds DeepSeek limit. The oversized prompt fallback (chunked completion + file upload) handles this automatically; check `oversized_prompt` config section |
+| API request always 401 | `{"error":{"message":"invalid api token"}}` on every `/v1/*` call | `api_keys` is empty or the token doesn't match; there is **no** auth-free mode. Add a key via the admin panel |
+| Oversized prompt rejected | `413` or truncation errors | Prompt exceeds DeepSeek limit. The oversized fallback (history-split file upload / expert chunked completion) handles this automatically; tune `input_character_limits` in `[ds_core]` |
+| `不支持的模型: default` / client reports model not found | Model selection fails in Claude Code / Codex (issue #99) | Bare model_type names are accepted since v0.2.11 (`default` == `deepseek-default`). On older builds use the `deepseek-` prefix or set `model_aliases` |
 | Streaming stalls | No SSE events after initial connection | Check `RUST_LOG=adapter=trace,ds_core::accounts=debug,info` for where the pipeline halts |
 | Working inside `ds_core/` | `cargo` not finding manifests | Run commands from workspace root, not from inside `ds_core/`. Use `cargo build -p ds_core` |
 
