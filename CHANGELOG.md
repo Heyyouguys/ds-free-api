@@ -44,6 +44,8 @@ Anthropic Messages 的实现；同时补齐 CI/CD 契约、前后端联调契约
 - **`scripts/check-lint-exemptions.sh`**：把 AGENTS.md 的「除 `client.rs` 外禁止 `#[allow]`」
   与「日志必须为英文」两条约定变成 CI 可执行检查
 - **`web/scripts/check-locales.mjs`**：三个 locale 文件键集一致性检查（`bun run check:locales`）
+- **`scripts/check-config-drift.sh`**：校验 `docker/config.example.toml` 与根目录
+  `config.example.toml` 的生效配置一致（唯一允许差异为 `host`）
 - **`py-e2e-tests/test_responses.py`**（`just e2e-responses`）：Responses API 端到端测试
   —— 非流式/流式、工具调用、`previous_response_id` 多轮、错误信封
 - **HTTP 层集成测试**（`src/server.rs`）：用 `tower::ServiceExt::oneshot` 驱动 axum Router，

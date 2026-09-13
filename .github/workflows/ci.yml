@@ -46,6 +46,8 @@ jobs:
               - 'justfile'
               - 'scripts/**'
               - 'deny.toml'
+              - 'config.example.toml'
+              - 'docker/**'
 
   build-frontend:
     needs: [changes]
@@ -123,6 +125,8 @@ jobs:
         run: cargo machete
       - name: Check for disallowed lint exemptions
         run: scripts/check-lint-exemptions.sh
+      - name: Check config.example.toml drift (root vs docker)
+        run: scripts/check-config-drift.sh
       - name: Install cargo-outdated
         uses: taiki-e/install-action@v2
         with:

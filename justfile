@@ -17,6 +17,7 @@ check:
   scripts/check-outdated.sh -p ds_core
   cargo machete
   scripts/check-lint-exemptions.sh
+  scripts/check-config-drift.sh
 
 # Build + lint frontend (bun install --frozen-lockfile, bun run typecheck + build + lint)
 check-web:
@@ -29,6 +30,10 @@ check-lint-exemptions:
 # 校验三种语言 locale 键集完全一致
 check-locales:
   cd web && bun run check:locales
+
+# 校验 docker/config.example.toml 与根目录 config.example.toml 未漂移
+check-config-drift:
+  scripts/check-config-drift.sh
 
 
 # Run unified protocol debug CLI (replaces ds-core-cli / openai-adapter-cli)

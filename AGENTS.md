@@ -580,6 +580,8 @@ Follow `docs/code-style.md`:
 | Outdated wrapper | `scripts/check-outdated.sh` | `cargo outdated` fails to resolve because wreq 5.x is yanked; script skips only that known case |
 | Lint exemption gate | `scripts/check-lint-exemptions.sh` | Enforces the "no `#[allow]` outside client.rs" rule in CI |
 | i18n key-set gate | `web/scripts/check-locales.mjs` | Fails CI when the three locale files diverge |
+| Config example drift gate | `scripts/check-config-drift.sh` | Root and `docker/` config examples must stay identical except `host` |
+| Config example (authoritative) | `config.example.toml` + `docker/config.example.toml` | Both must document every config field; the docker copy differs only in `host` |
 | Responses e2e | `py-e2e-tests/test_responses.py` | `just e2e-responses` — streaming, tools, `previous_response_id`, error envelopes |
 | Release workflow | `.github/workflows/release.yml` | Tag `v*` → 8 targets, 4 platforms, CHANGELOG release |
 | Code style | `docs/code-style.md` | 注释、命名、错误消息约定 |
