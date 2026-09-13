@@ -318,6 +318,24 @@ just e2e-basic --report result.json
 - [日志规范](logging-spec.md)
 - [Prompt 注入策略](deepseek-prompt-injection.md)
 
+## 实测记录：`device_id` 必须是**真实注册**的指纹（2026-09-13 A/B 验证）
+
+**同一账号**（`v.s.i.gs.i.ehv.di.d.o.d@gmail.com`，未封禁）分别用三种 `device_id` 登录：
+
+| device_id | 结果 |
+|---|---|
+| 真实浏览器注册的指纹 | 通过设备校验 → 到达 `muted` 检查（说明设备校验**已通过**）|
+| 伪造的 base64（88 字符） | ❌ `RISK_DEVICE_DETECTED`（biz_code=11）|
+| 伪造的普通字符串 | ❌ `RISK_DEVICE_DETECTED`（biz_code=11）|
+
+**结论：`device_id` 不能伪造，必须是真实注册过的指纹。**
+
+> 排查提示：不要在**已封禁**的账号上验证这一点 —— 封禁检查可能先于设备校验返回
+> `USER_IS_BANNED`，会让人误以为「伪造的 device_id 也通过了」。必须用未封禁账号做 A/B。
+
+**这对缓解措施的影响**：「每账号独立 `device_id`」意味着必须**为每个账号各自注册一次设备**
+（独立浏览器配置文件 / 无痕窗口），不能靠生成随机值糊弄。这是一项真实成本。
+
 ## 实测记录：`device_id` 是必填项（2026-09-13 验证）
 
 不带 `device_id` 发起登录会被风控直接拒绝：
