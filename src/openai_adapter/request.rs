@@ -502,10 +502,10 @@ mod tests {
         assert!(matches!(err, OpenAIAdapterError::BadRequest(_)));
     }
 
-    // tools injection 位置：嵌入到最后一个 <｜Assistant｜> 后的 <think> 块中
+    // tools 注入位置：作为普通 System 内容注入一次，末尾保留 <｜Assistant｜>
 
     #[test]
-    fn tools_injected_into_think_block() {
+    fn tools_injected_into_system_message_once() {
         let body = serde_json::json!({
             "model": "deepseek-default",
             "messages": [
@@ -519,19 +519,62 @@ mod tests {
         });
         let req = parse_json(body).unwrap();
         let prompt = &req.prompt;
-        // 工具定义应注入到最后一个 <｜Assistant｜><think> 块中
+
+        // 工具定义位于 System 消息中
+        let sys_pos = prompt.find("<｜System｜>").expect("应存在 System 段");
+        let defs_pos = prompt.find("calc").expect("应包含工具定义");
+        assert!(defs_pos > sys_pos, "工具定义应在 System 消息内");
+        assert!(prompt.contains("工具调用格式"), "应包含调用格式规范");
+
+        // 不得再使用未闭合 <think> 注入（规则文本里提到 <think> 不算）
         assert!(
-            prompt.contains("<｜Assistant｜><think>嗯，我刚刚被系统提醒需要遵循以下内容:"),
-            "工具定义应注入到 <think> 块中"
+            !prompt.contains("<｜Assistant｜><think>"),
+            "不应再注入未闭合 <think> 块: {prompt}"
         );
-        assert!(prompt.contains("## 工具调用"));
-        assert!(prompt.contains("calc"));
-        // <think> 块应在最后，位于最后的 user 消息之后
-        let think_pos = prompt.find("<｜Assistant｜><think>").unwrap();
+        assert!(
+            !prompt.contains("我刚刚被系统提醒"),
+            "不应再注入角色扮演式元指令"
+        );
+
+        // 工具定义只注入一次（历史上 System 与 <think> 各注入一遍）
+        assert_eq!(
+            prompt.matches("你可以使用以下工具").count(),
+            1,
+            "工具定义只能出现一次"
+        );
+    }
+
+    // 多轮历史（含 assistant 轮次）且无 tools 时，末尾仍必须有
+    // <｜Assistant｜> 作为生成起点，否则 split_history_prompt 找不到拆分点，
+    // 会把整段历史当成 inline prompt 直接发送。
+
+    #[test]
+    fn prompt_ends_with_assistant_anchor_for_multiturn_history() {
+        let body = serde_json::json!({
+            "model": "deepseek-default",
+            "messages": [
+                { "role": "user", "content": "第一个问题" },
+                { "role": "assistant", "content": "回答" },
+                { "role": "user", "content": "第二个问题" }
+            ]
+        });
+        let req = parse_json(body).unwrap();
+        let prompt = &req.prompt;
+
+        let last_assistant = prompt
+            .rfind("<｜Assistant｜>")
+            .expect("prompt 必须以 <｜Assistant｜> 结尾作为生成起点");
         let last_user_pos = prompt.rfind("第二个问题").unwrap();
         assert!(
-            think_pos > last_user_pos,
-            "<think> 块应在最后的 user 消息之后"
+            last_assistant > last_user_pos,
+            "末尾 <｜Assistant｜> 应在最后一条 user 消息之后"
+        );
+        assert!(
+            prompt[last_assistant + "<｜Assistant｜>".len()..]
+                .trim()
+                .is_empty(),
+            "末尾 <｜Assistant｜> 之后不应再有内容: {:?}",
+            &prompt[last_assistant..]
         );
     }
 

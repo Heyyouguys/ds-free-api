@@ -1,8 +1,10 @@
-//! Prompt 构建 —— 将 OpenAI messages 转换为 DeepSeek 原生标签格式
+//! Prompt 构建 —— 将 OpenAI messages 转换为 DeepSeek 原生 ChatML 标签格式
 //!
-//! 使用 `<｜System｜>`、`<｜User｜>`、`<｜Assistant｜>`、`<｜tool▁outputs▁begin｜>` 作为角色标记。
-//! 若请求包含工具定义或行为指令，会嵌入到最后一个 `<｜Assistant｜>` 后的
-//! 不闭合 `<think>` 块中，确保工具上下文始终紧邻模型生成位置。
+//! 角色标记使用 `<｜System｜>`、`<｜User｜>`、`<｜Assistant｜>`、`<｜tool▁outputs▁begin｜>`，
+//! 上一轮以 `<｜end▁of▁sentence｜>` 收尾，与 DeepSeek 官方对话模板一致。
+//!
+//! 工具定义、调用格式规范与 `response_format` 约束作为**普通 System 内容注入一次**，
+//! 不使用「未闭合 `<think>` + 元指令」的注入方式（原因见 `build()` 内注释）。
 
 use super::tools::ToolContext;
 use crate::openai_adapter::response::{TOOL_CALL_END, TOOL_CALL_START};
@@ -125,79 +127,52 @@ pub(crate) fn build(req: &ChatCompletionsRequest, tool_ctx: &ToolContext) -> Str
         }
     }
 
-    let mut tool_sections: Vec<String> = Vec::new();
+    // 工具定义、格式规范、调用指令与输出格式约束全部作为普通 System 内容注入一次。
+    //
+    // 不再使用「未闭合 <think> + 元指令」的注入方式：那种写法会把
+    // 「嗯，我刚刚被系统提醒需要遵循以下内容」这类角色扮演文本和重复两遍的
+    // 规则块送进模型，既抬高 token 成本（实测约 1.8 倍），也容易被上游
+    // 滥用检测判定为提示词注入。标准 ChatML 下模型遵循度实测一致。
+    let mut system_sections: Vec<String> = Vec::new();
 
-    if let Some(text) = tool_ctx.format_block.as_deref() {
-        tool_sections.push(format!("### 格式规范\n{}", text));
-    }
     if let Some(text) = tool_ctx.defs_text.as_deref() {
-        tool_sections.push(format!("### 工具定义\n{}", text));
+        system_sections.push(text.to_string());
+    }
+    if let Some(text) = tool_ctx.format_block.as_deref() {
+        system_sections.push(text.to_string());
     }
     if let Some(text) = tool_ctx.instruction_text.as_deref() {
-        tool_sections.push(format!("### 调用指令\n{}", text));
+        system_sections.push(text.to_string());
+    }
+    // response_format 降级：以普通文本形式描述输出格式约束
+    if let Some(rf) = req.response_format.as_ref() {
+        let format_text = format_response_text(rf);
+        if !format_text.is_empty() {
+            system_sections.push(format_text);
+        }
     }
 
-    let mut reminder_parts: Vec<String> = Vec::new();
-
-    if !tool_sections.is_empty() {
-        reminder_parts.push(format!("## 工具调用\n{}", tool_sections.join("\n\n")));
-    }
-
-    // response_format 降级：将格式约束注入到 <arg_key> 块中
-    let format_text = req
-        .response_format
-        .as_ref()
-        .map(format_response_text)
-        .unwrap_or_default();
-    if !format_text.is_empty() {
-        reminder_parts.push(format!("## 输出格式\n{}", format_text));
-    }
-
-    if !reminder_parts.is_empty() {
-        let reminder_body = reminder_parts.join("\n\n");
-
-        // System 尾部注入完整 reminder（不含"嗯"前缀，含工具定义）
-        let sys_content = format!("\n\n{}", reminder_body);
+    if !system_sections.is_empty() {
+        let body = system_sections.join("\n\n");
         if let Some(sys) = parts.iter_mut().find(|p| p.starts_with("<｜System｜>")) {
-            if let Some(end) = sys.rfind('\n') {
-                sys.insert_str(end, &sys_content);
-            }
+            // 已有 System：把工具信息插到该消息正文末尾（保持角色标签在最前）
+            let insert_at = sys.rfind('\n').unwrap_or(sys.len());
+            sys.insert_str(insert_at, &format!("\n\n{body}"));
         } else {
-            parts.insert(0, format!("<｜System｜>{}\n", sys_content));
-        }
-
-        // <think> 中不含工具定义，只含格式规范和调用指令
-        let mut think_sections: Vec<String> = Vec::new();
-        if let Some(text) = tool_ctx.format_block.as_deref() {
-            think_sections.push(format!("### 格式规范\n{}", text));
-        }
-        if let Some(text) = tool_ctx.instruction_text.as_deref() {
-            think_sections.push(format!("### 调用指令\n{}", text));
-        }
-        let mut think_parts: Vec<String> = Vec::new();
-        if !think_sections.is_empty() {
-            think_parts.push(format!("## 工具调用\n{}", think_sections.join("\n\n")));
-        }
-        // response_format only in think
-        let think_format_text = req
-            .response_format
-            .as_ref()
-            .map(format_response_text)
-            .unwrap_or_default();
-        if !think_format_text.is_empty() {
-            think_parts.push(format!("## 输出格式\n{}", think_format_text));
-        }
-        if !think_parts.is_empty() {
-            let think_reminder = format!(
-                "嗯，我刚刚被系统提醒需要遵循以下内容:\n\n{}",
-                think_parts.join("\n\n")
-            );
-            parts.push(format!("<｜Assistant｜><think>{}\n", think_reminder));
+            parts.insert(0, format!("<｜System｜>{body}\n"));
         }
     }
 
-    // 确保末尾有 <｜Assistant｜> 供 split_history_prompt 做拆分点
-    if !parts.iter().any(|p| p.starts_with("<｜Assistant｜>")) {
+    // 末尾必须有 <｜Assistant｜> 作为生成起点，同时供 split_history_prompt 定位拆分点。
+    //
+    // 这里必须判断「最后一个片段」而不是「是否出现过」：多轮历史里本来就含
+    // <｜Assistant｜> 轮次，早期写法用 `any()` 会导致末尾缺少锚点，
+    // split_history_prompt 找不到 assistant 块，整段历史被当作 inline prompt 直发。
+    // 若最后一条消息本身就是 assistant（prefill 续写场景），则保持原样不再追加。
+    if !parts
+        .last()
+        .is_some_and(|p| p.starts_with("<｜Assistant｜>"))
+    {
         parts.push("<｜Assistant｜>\n".to_string());
     }
 

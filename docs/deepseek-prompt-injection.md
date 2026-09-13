@@ -41,3 +41,41 @@
 - 主标签: `<|tool▁calls▁begin|>` / `<|tool▁calls▁end|>`
 - 回退列表默认为空, 发现模型输出幻觉变体时再逐个追加到 `extra_starts` / `extra_ends`
 - `<|tool▁calls▁begin|>` 格式模型几乎不产生幻觉, 省去了大量回退维护成本
+
+## 2026-09 变更：放弃 `<think>` 注入，回归标准 ChatML
+
+### 背景
+
+原实现把工具定义与调用规则**重复两遍**注入：
+
+1. `<｜System｜>` 段末尾注入一份完整 reminder（含工具定义）
+2. 末尾再追加 `<｜Assistant｜><think>嗯，我刚刚被系统提醒需要遵循以下内容:...`
+   （不闭合的 `<think>`，且带角色扮演式措辞）
+
+此外 `prompt.rs` 末尾判断的是「是否**出现过** `<｜Assistant｜>`」而不是「最后一段是否是」，
+多轮历史（本身含 assistant 轮次）时不会补生成锚点，`split_history_prompt` 找不到拆分点。
+
+### 变更内容
+
+- 工具定义 / 格式规范 / 调用指令 / `response_format` 约束统一作为**普通 System 内容注入一次**
+- 彻底移除未闭合 `<think>` 注入与「我刚刚被系统提醒」措辞
+- 末尾锚点判断改为「最后一段不是 `<｜Assistant｜>` 才追加」
+
+### 实测对比（同一账号、同一工具请求）
+
+| 方案 | 工具调用结果 | prompt | 上游累计 token |
+|------|--------------|--------|----------------|
+| 旧：`<think>` 注入 + 重复两遍 | `get_weather {"city":"北京"}` ✅ | 2652 字符 | 1414 |
+| 新：标准 ChatML 注入一次 | `get_weather {"city":"北京"}` ✅ | ~1400 字符 | 802 |
+
+模型遵循度一致，token 成本降低约 43%。同时消除了「未闭合标签 + 元指令 + 重复块」
+这三个容易被上游滥用检测命中的特征（参见 issue #97 / #101 / #102 的封禁反馈）。
+
+配套工具：`examples/prompt_probe.rs` 可绕过适配层直接发送任意 prompt 做 A/B 对比：
+
+```bash
+PROBE_VARIANTS=/tmp/variants.json PROBE_MODEL_TYPE=default \
+  cargo run --example prompt_probe -- -c py-e2e-tests/config.toml
+```
+
+`variants.json` 为 `[{"label": "...", "prompt": "..."}]`。
