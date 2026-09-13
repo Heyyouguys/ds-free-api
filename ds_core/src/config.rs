@@ -14,6 +14,8 @@ pub struct DsCoreConfig {
     pub proxy_url: Option<String>,
     pub model_types: Vec<String>,
     pub input_character_limits: Vec<u32>,
+    /// 每账号每小时请求上限（0 = 不限制）
+    pub hourly_request_quota: u64,
 }
 
 /// 单个账号配置
@@ -23,6 +25,11 @@ pub struct AccountConfig {
     pub mobile: String,
     pub area_code: String,
     pub password: String,
-    /// 浏览器设备指纹 ID（可选）：填写真实值可规避登录风控 RISK_DEVICE_DETECTED
+    /// 浏览器设备指纹 ID。
+    ///
+    /// **实测为必填**：缺失会被登录风控直接拒绝（`RISK_DEVICE_DETECTED`，biz_code 11）。
+    ///
+    /// 建议**每个账号使用独立的 device_id**：设备级指纹被上游用于关联与画像，
+    /// 同一指纹下挂多个账号、累计数百次请求后，账号会被禁言（`biz_code=5`）。
     pub device_id: String,
 }

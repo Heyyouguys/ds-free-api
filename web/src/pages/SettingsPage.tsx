@@ -480,13 +480,28 @@ export function SettingsPage() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-semibold flex items-center gap-2">
             <Search className="h-4 w-4 text-primary" />
-            <span>{t('settings.searchMode')}</span>
+            <span>{t('settings.quota')}</span>
           </CardTitle>
           <CardDescription className="text-xs">
             {t('settings.searchModeDesc')}
           </CardDescription>
         </CardHeader>
-        <CardContent className="pt-2">
+        <CardContent className="pt-2 space-y-4">
+          <div>
+            <label htmlFor="set-quota" className="text-xs font-medium text-muted-foreground block mb-1.5">
+              {t('settings.quotaLabel')}
+            </label>
+            <Input
+              id="set-quota"
+              type="number"
+              value={config.ds_core.hourly_request_quota}
+              onChange={(e) =>
+                update(['ds_core', 'hourly_request_quota'], Number(e.target.value))
+              }
+              className="font-mono text-xs"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1.5">{t('settings.quotaDesc')}</p>
+          </div>
           <label
             htmlFor="set-default-search"
             className="flex items-center gap-3 cursor-pointer select-none"

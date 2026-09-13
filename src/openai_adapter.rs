@@ -69,6 +69,7 @@ impl OpenAIAdapter {
             proxy_url: config.proxy.url.clone(),
             model_types: config.ds_core.model_types.clone(),
             input_character_limits: config.ds_core.input_character_limits.clone(),
+            hourly_request_quota: config.ds_core.hourly_request_quota,
         };
         let accounts: Vec<AccountConfig> = config
             .ds_core
@@ -503,6 +504,7 @@ impl OpenAIAdapter {
             proxy_url: new_config.proxy.url.clone(),
             model_types: new_config.ds_core.model_types.clone(),
             input_character_limits: new_config.ds_core.input_character_limits.clone(),
+            hourly_request_quota: new_config.ds_core.hourly_request_quota,
         };
         self.ds_core.reload_config(&core_cfg).await
     }

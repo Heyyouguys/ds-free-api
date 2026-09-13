@@ -324,6 +324,13 @@ export function DashboardPage() {
                       )}
                     />
                     {a.email || a.mobile}
+                    {a.quota_exhausted ? (
+                      <span className="text-red-600 dark:text-red-400">
+                        · {t('dashboard.quotaExhausted')}
+                      </span>
+                    ) : a.used_this_hour > 0 ? (
+                      <span className="text-muted-foreground">· {a.used_this_hour}</span>
+                    ) : null}
                   </Badge>
                 );
               })}
@@ -537,6 +544,11 @@ export function DashboardPage() {
                 return (
                   <Badge key={a.email || a.mobile} variant={variant} className={className}>
                     {a.email || a.mobile}
+                    {a.quota_exhausted
+                      ? ` · ${t('dashboard.quotaExhausted')}`
+                      : a.used_this_hour > 0
+                      ? ` · ${a.used_this_hour}`
+                      : ''}
                   </Badge>
                 );
               })}

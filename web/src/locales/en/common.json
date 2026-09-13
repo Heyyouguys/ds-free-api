@@ -60,7 +60,9 @@
       "invalid": "Invalid",
       "accounts": "Accounts"
     },
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "quotaUsed": "{{used}} / {{limit}} this hour",
+    "quotaExhausted": "Quota used up"
   },
   "config": {
     "title": "Configuration",
@@ -172,7 +174,10 @@
     "storeCapacity": "Cache Capacity",
     "storeTtl": "TTL (seconds)",
     "searchMode": "Default Search Mode",
-    "searchModeDesc": "Whether web search is enabled when the request omits web_search_options. Disabling strictly follows the OpenAI semantics and avoids injecting DeepSeek search system prompts."
+    "searchModeDesc": "Whether web search is enabled when the request omits web_search_options. Disabling strictly follows the OpenAI semantics and avoids injecting DeepSeek search system prompts.",
+    "quota": "Per-account Hourly Request Budget",
+    "quotaDesc": "Upstream mutes accounts after a few hundred requests per hour, and muting is delayed. Accounts that exhaust this budget are skipped until the window rolls over (0 = unlimited). Add more accounts instead of raising this value.",
+    "quotaLabel": "Requests / hour / account"
   },
   "logs": {
     "title": "Logs",

@@ -66,6 +66,13 @@ pub struct DsCoreSection {
     /// 工具调用标签配置（自定义回退标签）
     #[serde(default)]
     pub tool_call: ToolCallTagConfig,
+    /// 每账号每小时请求上限（0 = 不限制）
+    ///
+    /// 实测同一账号累计约 215 次请求后会被上游禁言，且禁言是**延迟判定**的。
+    /// 该配额在账号维度做滑动窗口限流：达到上限的账号在本小时内不再被分配，
+    /// 由池中其他账号承接；所有账号都超限时返回 429（而非继续硬打上游）。
+    #[serde(default = "default_hourly_request_quota")]
+    pub hourly_request_quota: u64,
     /// 未显式传入 `web_search_options` 时是否默认开启搜索模式（默认 true）
     ///
     /// `true` 保持历史行为（始终搜索）；设为 `false` 则严格遵循 OpenAI 语义
@@ -218,6 +225,15 @@ fn default_max_output_tokens() -> Vec<u32> {
 /// 历史上 expert 的 163840 已过期（上游现已放开）。
 fn default_input_character_limits() -> Vec<u32> {
     vec![2_621_440]
+}
+
+/// 每账号每小时请求上限默认值
+///
+/// 取 60：远低于实测触发禁言的 ~215 次/小时量级，同时单账号仍能支撑
+/// 常规交互式使用（平均每分钟 1 次）。需要更高吞吐时请增加账号数量，
+/// 而不是抬高这个值 —— 这正是本配额想传达的约束。
+fn default_hourly_request_quota() -> u64 {
+    60
 }
 
 /// 未传 `web_search_options` 时默认是否开启搜索模式。
@@ -441,6 +457,7 @@ impl Default for DsCoreSection {
             input_character_limits: default_input_character_limits(),
             model_aliases: Vec::new(),
             tool_call: ToolCallTagConfig::default(),
+            hourly_request_quota: default_hourly_request_quota(),
             default_search_enabled: default_search_enabled(),
             responses_store_capacity: default_responses_store_capacity(),
             responses_store_ttl_secs: default_responses_store_ttl_secs(),

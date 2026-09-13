@@ -68,6 +68,8 @@ pub struct DsCoreView {
     pub input_character_limits: Vec<u32>,
     pub model_aliases: Vec<String>,
     pub tool_call: ToolCallTagConfigView,
+    /// 每账号每小时请求上限（0 = 不限制）
+    pub hourly_request_quota: u64,
     /// 未显式传 `web_search_options` 时是否默认开启搜索模式
     pub default_search_enabled: bool,
     /// Responses API `previous_response_id` 缓存条数上限
@@ -151,6 +153,7 @@ fn mask_config(config: &Config) -> AdminConfigResponse {
                 extra_starts: config.ds_core.tool_call.extra_starts.clone(),
                 extra_ends: config.ds_core.tool_call.extra_ends.clone(),
             },
+            hourly_request_quota: config.ds_core.hourly_request_quota,
             default_search_enabled: config.ds_core.default_search_enabled,
             responses_store_capacity: config.ds_core.responses_store_capacity,
             responses_store_ttl_secs: config.ds_core.responses_store_ttl_secs,
@@ -453,6 +456,7 @@ model_aliases = ["alias-a"]
 responses_store_capacity = 128
 responses_store_ttl_secs = 7200
 default_search_enabled = false
+hourly_request_quota = 42
 
 [[ds_core.accounts]]
 email = "a@example.com"
@@ -561,6 +565,7 @@ description = "test"
         assert_eq!(json["ds_core"]["responses_store_capacity"], 128);
         assert_eq!(json["ds_core"]["responses_store_ttl_secs"], 7200);
         assert_eq!(json["ds_core"]["default_search_enabled"], false);
+        assert_eq!(json["ds_core"]["hourly_request_quota"], 42);
     }
 
     #[test]

@@ -60,7 +60,9 @@
       "invalid": "Tidak Valid",
       "accounts": "Akun"
     },
-    "refresh": "Segarkan"
+    "refresh": "Segarkan",
+    "quotaUsed": "{{used}} / {{limit}} jam ini",
+    "quotaExhausted": "Kuota habis"
   },
   "config": {
     "title": "Konfigurasi",
@@ -172,7 +174,10 @@
     "storeCapacity": "Kapasitas Cache",
     "storeTtl": "TTL (detik)",
     "searchMode": "Mode Pencarian Default",
-    "searchModeDesc": "Apakah pencarian web aktif saat permintaan tidak menyertakan web_search_options. Menonaktifkan akan mengikuti semantik OpenAI secara ketat."
+    "searchModeDesc": "Apakah pencarian web aktif saat permintaan tidak menyertakan web_search_options. Menonaktifkan akan mengikuti semantik OpenAI secara ketat.",
+    "quota": "Kuota Permintaan per Akun per Jam",
+    "quotaDesc": "Upstream membisukan akun setelah beberapa ratus permintaan per jam, dan pembisuan bersifat tertunda. Akun yang kehabisan kuota dilewati hingga jendela bergulir (0 = tanpa batas).",
+    "quotaLabel": "Permintaan / jam / akun"
   },
   "logs": {
     "title": "Log",

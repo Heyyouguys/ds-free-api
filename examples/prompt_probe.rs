@@ -36,6 +36,8 @@ async fn main() -> anyhow::Result<()> {
         proxy_url: config.proxy.url.clone(),
         model_types: config.ds_core.model_types.clone(),
         input_character_limits: config.ds_core.input_character_limits.clone(),
+        // 探测工具会连续发请求做 A/B 对比，配额交给调用方自行控制
+        hourly_request_quota: 0,
     };
     let accounts: Vec<AccountConfig> = config
         .ds_core

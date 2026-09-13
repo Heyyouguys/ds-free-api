@@ -27,11 +27,17 @@ port = 22217
 # area_code = "+86"
 # password = "pass2"
 
-# 设备指纹 ID（可选）：登录返回 RISK_DEVICE_DETECTED（biz_code=11）风控时必填
+# 设备指纹 ID（**必填**）：缺失会被登录风控直接拒绝
+# （客户端错误: Business error: code=11, msg=RISK_DEVICE_DETECTED）
+#
 # 获取方式：用 Chrome 打开 https://chat.deepseek.com/sign_in 并登录一次，
 # 在开发者工具 → Network 中查看 POST /api/v0/users/login 请求体里的 device_id 值；
 # 也可在页面加载完成后于控制台执行 SMSdk.getDeviceId() 直接读取。
-# 该 ID 是设备级的（同一浏览器/机器可复用于多个账号），获取一次即可长期复用。
+#
+# ⚠️ 强烈建议**每个账号使用独立的 device_id**（例如各自用一个浏览器配置文件 / 无痕窗口登录一次）。
+#    该 ID 是设备级的，上游用它做关联与画像。实测：同一个 device_id 下挂多个账号、
+#    累计数百次请求后，这些账号会被禁言（biz_code=5）。服务启动时若检测到多个账号
+#    共用同一指纹，会在日志中给出警告。
 # 留空则沿用服务端已有值（管理面板保存时不会覆盖）。
 # 示例（按账号分别填写）：
 # [[ds_core.accounts]]
@@ -93,6 +99,16 @@ port = 22217
 # extra 用于格式完全不同的回退标签（如 <tool_call>）：
 # tool_call.extra_starts = ["<|tool_call_begin|>", "<tool_calls>", "<tool_call>"]
 # tool_call.extra_ends = ["<|tool_call_end|>", "</tool_calls>", "</tool_call>"]
+
+# 每账号每小时请求上限（0 = 不限制，默认 60）
+#
+# 为什么需要它：实测同一账号累计约 215 次请求后会被上游禁言（biz_code=5），
+# 且禁言是**延迟判定**的 —— 跑到一半没事，跑完才封。该配额在账号维度做
+# 一小时的滑动窗口限流：用尽的账号在本窗口内不再被分配，由其他账号承接；
+# 全部账号都超限时请求返回 429，而不是继续硬打上游。
+#
+# 需要更高吞吐请**增加账号数量**，而不是抬高这个值。
+# hourly_request_quota = 60
 
 # ── 搜索模式默认值 ─────────────────────────────────────────────────────
 #

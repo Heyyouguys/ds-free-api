@@ -111,6 +111,10 @@ export interface AccountStatus {
   state: string;
   last_released_ms: number;
   error_count: number;
+  /** Current-hour request usage for this account */
+  used_this_hour: number;
+  /** True when the hourly quota is used up (quota 0 = unlimited, always false) */
+  quota_exhausted: boolean;
 }
 
 export interface AdminStatusResponse {
@@ -188,6 +192,7 @@ export interface DsCoreConfig {
   model_aliases: string[];
   tool_call: ToolCallTagConfig;
   default_search_enabled: boolean;
+  hourly_request_quota: number;
   responses_store_capacity: number;
   responses_store_ttl_secs: number;
 }
@@ -230,6 +235,7 @@ const DEFAULTS = {
   responsesStoreCapacity: 256,
   responsesStoreTtlSecs: 3600,
   defaultSearchEnabled: true,
+  hourlyRequestQuota: 60,
 } as const;
 
 /**
@@ -282,6 +288,7 @@ export function normalizeConfig(raw: any): FullConfig {
         typeof core.default_search_enabled === 'boolean'
           ? core.default_search_enabled
           : DEFAULTS.defaultSearchEnabled,
+      hourly_request_quota: core.hourly_request_quota ?? DEFAULTS.hourlyRequestQuota,
       responses_store_capacity:
         core.responses_store_capacity ?? DEFAULTS.responsesStoreCapacity,
       responses_store_ttl_secs:

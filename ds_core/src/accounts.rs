@@ -46,7 +46,7 @@ impl Accounts {
         let wasm_bytes = client.get_wasm().await?;
         let solver = PowSolver::new(&wasm_bytes)?;
 
-        let pool = AccountPool::new();
+        let pool = AccountPool::new(config.hourly_request_quota);
         pool.init(account_creds, &client, &solver)
             .await
             .map_err(|e| match e {

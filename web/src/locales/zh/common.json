@@ -60,7 +60,9 @@
       "invalid": "失效",
       "accounts": "个账号"
     },
-    "refresh": "刷新"
+    "refresh": "刷新",
+    "quotaUsed": "本小时 {{used}} / {{limit}}",
+    "quotaExhausted": "配额已用尽"
   },
   "config": {
     "title": "配置编辑",
@@ -172,7 +174,10 @@
     "storeCapacity": "缓存容量",
     "storeTtl": "存活秒数 (TTL)",
     "searchMode": "默认搜索模式",
-    "searchModeDesc": "请求未携带 web_search_options 时是否开启联网搜索。关闭后严格遵循 OpenAI 语义，并避免注入 DeepSeek 的搜索系统提示词。"
+    "searchModeDesc": "请求未携带 web_search_options 时是否开启联网搜索。关闭后严格遵循 OpenAI 语义，并避免注入 DeepSeek 的搜索系统提示词。",
+    "quota": "单账号每小时请求配额",
+    "quotaDesc": "上游会在单账号每小时数百次请求后禁言，且禁言是延迟判定的。用尽配额的账号会在本小时内被跳过（0 = 不限制）。需要更高吞吐请增加账号数量，而不是抬高此值。",
+    "quotaLabel": "请求数 / 小时 / 账号"
   },
   "logs": {
     "title": "日志",

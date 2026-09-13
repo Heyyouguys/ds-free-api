@@ -370,7 +370,16 @@ Request fields mapped in `request/resolver.rs`:
 - **Response format**: `response_format` → JSON/schema text injection in prompt.
 - **Login `device_id`**: per-account field forwarded into the `/users/login` payload.
   It is **required in practice** — logging in without it is rejected with
-  `RISK_DEVICE_DETECTED` (biz_code 11), verified empirically; see `docs/development.md`.
+  `RISK_DEVICE_DETECTED` (biz_code 11), verified empirically. **Each account should
+  use its own** `device_id`: the fingerprint is device-scoped and upstream correlates
+  accounts by it; sharing one across accounts raises mute risk. Startup warns when
+  accounts share a fingerprint. See `docs/development.md`.
+- **Hourly request quota** (`hourly_request_quota`, default 60, 0 = unlimited): enforced
+  per account in `AccountPool::get_account()` via a one-hour fixed window
+  (`RequestWindow` in `ds_core/src/accounts/pool.rs`). Accounts over budget are skipped;
+  if every account is over budget the request returns 429 instead of hammering upstream.
+  This exists because upstream mutes accounts after a few hundred requests per hour, and
+  muting is **delayed** — see `docs/development.md`.
 
 ### Overloaded Retry
 
