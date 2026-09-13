@@ -4,6 +4,63 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.11] - 2026-09-13
+
+依据抓取到的上游实际配置做精简，并修复 issue #99 / #87 / #76。
+
+### 上游事实（`/api/v0/client/settings?did=<device_id>`）
+
+`model_configs` 是权威来源，网页端已无 expert / vision 切换入口：
+
+| model_type | 名称 | enabled | switchable | input_character_limit |
+|------------|------|---------|------------|-----------------------|
+| `default` | 快速模式 | ✅ true | ✅ true | 2621440 |
+| `expert` | 专家模式 | ❌ **false** | ❌ false | 2621440 |
+| `vision` | 识图模式 | ❌ **false** | ❌ false | 2621440 |
+
+另核对 `pow_header_paths` / `authed_pow_functions`（`["search","deep_think","completion","file"]`）
+确认现有 PoW 目标路径无需改动。
+
+### Changed
+
+- **默认只暴露 `default`**：`model_types` 默认值由 `["default","expert","vision"]` 收窄为 `["default"]`；
+  `input_character_limits` 由 `[2621440,163840,2621440]` 改为 `[2621440]`
+  （上游对全部 model_type 都返回 2621440，expert 的 163840 已过期）。
+  expert 的 chunked 回退路径**保留**，显式配置 `model_types` 时仍可用
+
+### Fixed
+
+- **issue #99 模型名 `default` 无法识别**：`model_registry()` 原本只注册 `deepseek-<type>` 与别名，
+  而 Claude Code / Codex 常把 `model` 设为 `default`。现在额外注册裸 model_type 名（大小写不敏感）
+- **issue #87 反复工具调用**：`tool_parser` 的保活心跳每秒发送
+  `tool_calls: [{id:"", name:"", arguments:""}]`，客户端按 index/id 累积时会得到一串空工具调用。
+  改为发送**空 delta** 心跳
+- **issue #76 思考内容出现 `tool_calls...`**：Anthropic 层把保活转成 thinking 增量的字面文本，
+  污染思考内容。改为发送 Anthropic 协议规定的 `ping` 事件，且不再打断当前文本块
+- **issue #93（第二个入口）`tool_calls` 场景 `completion_tokens` 为 0**：`tool_parser` 有两个
+  `ToolParseState::Done` 分支，工具调用后模型继续输出文字时会命中第一个分支并**提前结束流**，
+  丢掉随后带 `usage` 的收尾 chunk。现在第一个分支只丢弃幻觉内容、不提前结束流
+- **Docker 配置**：`docker/config.example.toml` 同步上游模型状态说明
+- **AGENTS.md**：修正过时的 `<think>` 注入描述、**并不存在的 `oversized_prompt` 配置节**、
+  以及错误的「api_keys 为空时无鉴权」说明（实测始终 401）
+
+### Added
+
+- 5 项回归测试：`bare_model_type_name_is_accepted`、`keepalive_emits_empty_delta`、
+  `keepalive_emits_ping_not_fake_thinking`、改造后的 `keepalive_during_text`、
+  `stream_tool_calls_preserves_usage`
+
+### 测试结果
+
+- `cargo test --workspace`：**132 passed / 0 failed**
+- 模型列表实测：默认配置仅返回 `deepseek-default`；显式配置三模型时仍返回全部三个（升级安全）
+- 裸名实测：`model: "default"` 通过解析；`model: "nonexistent"` 正确返回「不支持的模型」
+
+> **风控实测记录（重要）**：本账号在完整跑完 basic + repair 全量 e2e（70 请求）期间**未被禁言**，
+> 但随后仍被上游禁言（`biz_code=5`，`mute_until` 约 3 天后）。
+> 因此提示词改动**可能**有帮助，但**封禁并未消除**，风控仍是当前最大风险，请勿据此认为已解决。
+
+
 ## [0.2.10] - 2026-09-13
 
 提示词回归标准 ChatML，去掉容易被上游风控命中的注入特征；同时修复多轮历史缺少生成锚点、
