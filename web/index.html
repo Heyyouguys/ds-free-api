@@ -3,7 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/admin/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="apple-touch-icon" href="/admin/favicon.svg" />
+    <link rel="manifest" href="/admin/manifest.webmanifest" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="DS Free API" />
+    <meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="description" content="DeepSeek Free API High-Performance Gateway & Admin Dashboard" />
     <script>
       (function() {
         var key = 'theme-preference';
@@ -11,9 +20,15 @@
         var theme = value === 'light' || value === 'dark' || value === 'system' ? value : 'system';
         var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
         document.documentElement.classList.toggle('dark', dark);
+
+        if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
+          window.addEventListener('load', function() {
+            navigator.serviceWorker.register('/admin/sw.js').catch(function() {});
+          });
+        }
       })();
     </script>
-    <title>DS Free API - 管理面板</title>
+    <title>DS Free API - Gateway & Dashboard</title>
   </head>
   <body>
     <div id="root"></div>

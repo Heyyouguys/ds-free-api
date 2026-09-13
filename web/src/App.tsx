@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from '@/lib/auth';
 import { useAuth } from '@/lib/use-auth';
@@ -6,7 +7,9 @@ import { LoginPage } from '@/pages/LoginPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { ModelsPage } from '@/pages/ModelsPage';
 import { ConfigPage } from '@/pages/ConfigPage';
+import { SettingsPage } from '@/pages/SettingsPage';
 import { LogsPage } from '@/pages/LogsPage';
+import { SplashScreen } from '@/components/SplashScreen';
 
 function ProtectedRoutes() {
   const { isAuthenticated } = useAuth();
@@ -19,6 +22,7 @@ function ProtectedRoutes() {
         <Route index element={<DashboardPage />} />
         <Route path="models" element={<ModelsPage />} />
         <Route path="config" element={<ConfigPage />} />
+        <Route path="settings" element={<SettingsPage />} />
         <Route path="logs" element={<LogsPage />} />
       </Route>
     </Routes>
@@ -26,8 +30,11 @@ function ProtectedRoutes() {
 }
 
 function App() {
+  const [showSplash, setShowSplash] = useState(true);
+
   return (
     <AuthProvider>
+      {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} minDurationMs={650} />}
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/*" element={<ProtectedRoutes />} />

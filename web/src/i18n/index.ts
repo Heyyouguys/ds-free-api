@@ -4,6 +4,7 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 
 import zhTranslation from '../locales/zh/common.json';
 import enTranslation from '../locales/en/common.json';
+import idTranslation from '../locales/id/common.json';
 
 export const resources = {
   zh: {
@@ -11,6 +12,9 @@ export const resources = {
   },
   en: {
     common: enTranslation,
+  },
+  id: {
+    common: idTranslation,
   },
 } as const;
 

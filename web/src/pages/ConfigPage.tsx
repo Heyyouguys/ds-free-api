@@ -1,28 +1,29 @@
-import { useEffect, useState } from 'react';
-import { apiFetchConfig, apiSaveConfig, type FullConfig } from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useEffect, useState, useRef } from 'react';
+import { useOutletContext } from 'react-router-dom';
+import { apiFetchConfig, apiSaveConfig, localizeAuthError, type FullConfig } from '@/lib/api';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import {
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  Eye,
-  EyeOff,
-  Plus,
-  Save,
-  X,
-  Server,
-  Cpu,
-  Globe,
   Key,
   User,
-  Shield,
   Tags,
+  Boxes,
+  Plus,
+  Trash2,
+  Copy,
+  Check,
+  Eye,
+  EyeOff,
+  Save,
+  CheckCircle2,
+  AlertCircle,
+  Sliders,
 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useTranslation } from 'react-i18next';
+import { cn } from '@/lib/utils';
 
 function generateApiKey(): string {
   const bytes = new Uint8Array(24);
@@ -30,56 +31,66 @@ function generateApiKey(): string {
   return 'sk-' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Collapsible section wrapper */
-function Section({
-  title,
-  icon: Icon,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  icon: React.ElementType;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <Card>
-      <CardHeader
-        className="cursor-pointer select-none"
-        onClick={() => setOpen(!open)}
-      >
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Icon className="h-5 w-5" />
-          {title}
-          <span className="ml-auto text-muted-foreground">
-            {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          </span>
-        </CardTitle>
-      </CardHeader>
-      {open && <CardContent>{children}</CardContent>}
-    </Card>
-  );
-}
-
 export function ConfigPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [config, setConfig] = useState<FullConfig | null>(null);
+  const [initialConfig, setInitialConfig] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [revealedKeys, setRevealedKeys] = useState<Record<number, boolean>>({});
   const [revealedPasswords, setRevealedPasswords] = useState<Record<number, boolean>>({});
-  const [oldPassword, setOldPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
+  const [copiedKeyIdx, setCopiedKeyIdx] = useState<number | null>(null);
 
   useEffect(() => {
     apiFetchConfig()
-      .then(setConfig)
+      .then((cfg) => {
+        setConfig(cfg);
+        setInitialConfig(JSON.stringify(cfg));
+      })
       .catch(() => setMessage({ type: 'err', text: t('config.loadFailed') }));
   }, [t]);
 
+  const { isSidebarCollapsed } = useOutletContext<{ isSidebarCollapsed?: boolean }>() || {};
+  const [isHeaderActionVisible, setIsHeaderActionVisible] = useState(true);
+  const headerActionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = headerActionRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsHeaderActionVisible(entry.isIntersecting);
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [config]);
+
+  const isDirty = config ? JSON.stringify(config) !== initialConfig : false;
+
   if (!config) {
-    return <div className="p-4 text-muted-foreground">{t('config.loading')}</div>;
+    return (
+      <div className="space-y-6 max-w-5xl">
+        <div className="flex items-center justify-between pb-3 border-b">
+          <div className="space-y-1.5">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="h-4 w-72" />
+          </div>
+        </div>
+        <div className="space-y-5">
+          {Array.from({ length: 3 }).map((_, idx) => (
+            <Card key={idx} className="p-4 space-y-4 border shadow-sm">
+              <div className="flex items-center justify-between">
+                <Skeleton className="h-5 w-36" />
+                <Skeleton className="h-5 w-16 rounded-full" />
+              </div>
+              <Skeleton className="h-20 w-full rounded-xl" />
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   const update = <T,>(path: string[], value: T) => {
@@ -93,7 +104,7 @@ export function ConfigPage() {
       obj[path[path.length - 1]] = value as unknown;
       return next as unknown as FullConfig;
     });
-};
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -102,15 +113,17 @@ export function ConfigPage() {
       const body: Record<string, unknown> = {
         server: config.server,
         ds_core: config.ds_core,
+        deepseek: config.ds_core,
+        accounts: config.ds_core.accounts,
         proxy: config.proxy,
         admin: {
           password_hash: '',
           jwt_secret: '',
           jwt_issued_at: config.admin.jwt_issued_at,
-          old_password: oldPassword,
-          new_password: newPassword,
+          old_password: '',
+          new_password: '',
         },
-        api_keys: config.api_keys.map(k => ({
+        api_keys: config.api_keys.map((k) => ({
           key: k.key,
           description: k.description,
         })),
@@ -119,13 +132,13 @@ export function ConfigPage() {
       if (res.ok) {
         setMessage({ type: 'ok', text: t('config.saveSuccess') });
         setRevealedKeys({});
-        setOldPassword('');
-        setNewPassword('');
         const fresh = await apiFetchConfig();
         setConfig(fresh);
+        setInitialConfig(JSON.stringify(fresh));
       }
     } catch (e: unknown) {
-      setMessage({ type: 'err', text: `保存失败: ${e instanceof Error ? e.message : e}` });
+      const rawMsg = e instanceof Error ? e.message : String(e);
+      setMessage({ type: 'err', text: localizeAuthError(rawMsg, i18n.language) || t('config.saveFailed') });
     } finally {
       setSaving(false);
     }
@@ -135,116 +148,227 @@ export function ConfigPage() {
     if (confirm(t('config.cancelConfirm'))) {
       setRevealedKeys({});
       apiFetchConfig()
-        .then(setConfig)
+        .then((cfg) => {
+          setConfig(cfg);
+          setInitialConfig(JSON.stringify(cfg));
+        })
         .catch(() => setMessage({ type: 'err', text: t('config.loadFailed') }));
     }
   };
 
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // fallback
-      const el = document.createElement('textarea');
-      el.value = text;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
-    }
+  const copyToClipboard = (text: string, idx: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKeyIdx(idx);
+    setTimeout(() => setCopiedKeyIdx(null), 2000);
   };
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">{t('config.title')}</h1>
+    <div className="space-y-6 max-w-5xl pb-24 sm:pb-28 relative">
+      {/* Page Header */}
+      <div className="flex items-center justify-between gap-3 pb-3 border-b min-w-0">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2.5 truncate">
+            <Sliders className="h-5 w-5 sm:h-6 sm:w-6 text-primary shrink-0" />
+            <span className="truncate">{t('config.title')}</span>
+          </h1>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 truncate">
+            {t('config.subtitle')}
+          </p>
+        </div>
 
+        <div ref={headerActionRef} className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleCancel}
+            disabled={saving || !isDirty}
+            className="h-8 text-xs shrink-0"
+          >
+            {t('config.cancel')}
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={saving}
+            className="h-8 gap-1.5 text-xs shadow-sm shrink-0"
+          >
+            <Save className="h-3.5 w-3.5" />
+            <span>{saving ? t('config.saving') : t('config.save')}</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Alert Message */}
       {message && (
         <div
-          className={`p-3 rounded-md text-sm ${
-            message.type === 'err' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'
+          className={`flex items-center gap-2.5 p-3 rounded-xl text-xs font-medium border ${
+            message.type === 'err'
+              ? 'bg-destructive/10 text-destructive border-destructive/20'
+              : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
           }`}
         >
-          {message.text}
+          {message.type === 'err' ? (
+            <AlertCircle className="h-4 w-4 shrink-0" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+          )}
+          <span>{message.text}</span>
         </div>
       )}
 
-      {/* ── Accounts (always visible) ──────────────────────────── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <User className="h-5 w-5" /> {t('config.sections.accounts')}
-          </CardTitle>
+      {/* ── 1. DeepSeek Web Accounts Pool ─────────────────────────── */}
+      <Card className="border shadow-sm">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <User className="h-4 w-4 text-primary" />
+              <span>{t('config.sections.accounts')}</span>
+            </CardTitle>
+            <Badge variant="secondary" className="font-mono text-xs">
+              {t('config.accounts.countLabel', { count: config.ds_core.accounts.length })}
+            </Badge>
+          </div>
+          <CardDescription className="text-xs">
+            {t('config.accounts.description')}
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {config.ds_core.accounts.map((a, i) => (
-            <div key={i} className="flex flex-wrap items-end gap-2 p-3 border rounded-md">
-              <div className="flex-1 min-w-[120px]">
-                <label className="text-xs text-muted-foreground">{t('config.ds_core.accounts.email')}</label>
-                <Input
-                  value={a.email}
-                  onChange={(e) => {
-                    const next = [...config.ds_core.accounts];
-                    next[i] = { ...next[i], email: e.target.value };
-                    update(['ds_core', 'accounts'], next);
-                  }}
-                />
-              </div>
-              <div className="w-24">
-                <label className="text-xs text-muted-foreground">{t('config.ds_core.accounts.mobile')}</label>
-                <Input
-                  value={a.mobile}
-                  onChange={(e) => {
-                    const next = [...config.ds_core.accounts];
-                    next[i] = { ...next[i], mobile: e.target.value };
-                    update(['ds_core', 'accounts'], next);
-                  }}
-                />
-              </div>
-              <div className="w-20">
-                <label className="text-xs text-muted-foreground">{t('config.ds_core.accounts.areaCode')}</label>
-                <Input
-                  value={a.area_code}
-                  onChange={(e) => {
-                    const next = [...config.ds_core.accounts];
-                    next[i] = { ...next[i], area_code: e.target.value };
-                    update(['ds_core', 'accounts'], next);
-                  }}
-                />
-              </div>
-              <div className="flex-1 min-w-[120px]">
-                <label className="text-xs text-muted-foreground">{t('config.ds_core.accounts.password')}</label>
-                <div className="flex items-center gap-1">
-                  <Input
-                    type={revealedPasswords[i] ? 'text' : 'password'}
-                    value={a.password}
-                    onChange={(e) => {
-                      const next = [...config.ds_core.accounts];
-                      next[i] = { ...next[i], password: e.target.value };
-                      update(['ds_core', 'accounts'], next);
-                    }}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="shrink-0"
-                    onClick={() =>
-                      setRevealedPasswords((prev) => ({ ...prev, [i]: !prev[i] }))
-                    }
-                  >
-                    {revealedPasswords[i] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="shrink-0"
-                onClick={() => update(['ds_core', 'accounts'], config.ds_core.accounts.filter((_, j) => j !== i))}
-              >
-                <X className="h-4 w-4" />
-              </Button>
+        <CardContent className="space-y-3 pt-2">
+          {config.ds_core.accounts.length === 0 ? (
+            <div className="text-center py-6 border border-dashed rounded-xl text-xs text-muted-foreground">
+              {t('config.accounts.empty')}
             </div>
-          ))}
+          ) : (
+            <div className="divide-y border rounded-xl overflow-hidden bg-card/40">
+              {config.ds_core.accounts.map((a, i) => (
+                <div
+                  key={i}
+                  className="p-3.5 sm:p-3 space-y-3 sm:space-y-0 hover:bg-muted/15 transition-colors"
+                >
+                  {/* Mobile Card Header */}
+                  <div className="flex sm:hidden items-center justify-between pb-2 border-b">
+                    <span className="text-xs font-semibold font-mono text-primary">
+                      {t('config.accounts.accountNumber', { num: i + 1 })}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        update(
+                          ['ds_core', 'accounts'],
+                          config.ds_core.accounts.filter((_, j) => j !== i)
+                        )
+                      }
+                      className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-1" />
+                      {t('config.accounts.deleteLabel')}
+                    </Button>
+                  </div>
+
+                  {/* Fields (Stacked on mobile, 12-col grid on desktop/tablet) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+                    <div className="sm:col-span-4">
+                      <label htmlFor={`acc-email-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
+                        {t('config.accounts.email')}
+                      </label>
+                      <Input
+                        id={`acc-email-${i}`}
+                        placeholder="user@example.com"
+                        value={a.email}
+                        onChange={(e) => {
+                          const next = [...config.ds_core.accounts];
+                          next[i] = { ...next[i], email: e.target.value };
+                          update(['ds_core', 'accounts'], next);
+                        }}
+                        className="text-xs font-mono"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-3">
+                      <label htmlFor={`acc-mobile-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
+                        {t('config.accounts.mobile')}
+                      </label>
+                      <Input
+                        id={`acc-mobile-${i}`}
+                        placeholder="13800138000"
+                        value={a.mobile}
+                        onChange={(e) => {
+                          const next = [...config.ds_core.accounts];
+                          next[i] = { ...next[i], mobile: e.target.value };
+                          update(['ds_core', 'accounts'], next);
+                        }}
+                        className="text-xs font-mono"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label htmlFor={`acc-code-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
+                        {t('config.accounts.areaCode')}
+                      </label>
+                      <Input
+                        id={`acc-code-${i}`}
+                        placeholder="+86"
+                        value={a.area_code}
+                        onChange={(e) => {
+                          const next = [...config.ds_core.accounts];
+                          next[i] = { ...next[i], area_code: e.target.value };
+                          update(['ds_core', 'accounts'], next);
+                        }}
+                        className="text-xs font-mono"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label htmlFor={`acc-pass-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
+                        {t('config.accounts.password')}
+                      </label>
+                      <div className="relative">
+                        <Input
+                          id={`acc-pass-${i}`}
+                          type={revealedPasswords[i] ? 'text' : 'password'}
+                          placeholder="••••••••"
+                          value={a.password}
+                          onChange={(e) => {
+                            const next = [...config.ds_core.accounts];
+                            next[i] = { ...next[i], password: e.target.value };
+                            update(['ds_core', 'accounts'], next);
+                          }}
+                          className="text-xs pr-8"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setRevealedPasswords((prev) => ({ ...prev, [i]: !prev[i] }))}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          aria-label="Toggle password visibility"
+                        >
+                          {revealedPasswords[i] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Desktop Delete Button */}
+                    <div className="hidden sm:flex sm:col-span-1 justify-end">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() =>
+                          update(
+                            ['ds_core', 'accounts'],
+                            config.ds_core.accounts.filter((_, j) => j !== i)
+                          )
+                        }
+                        className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                        title={t('config.accounts.deleteTitle')}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <Button
             variant="outline"
             size="sm"
@@ -254,328 +378,304 @@ export function ConfigPage() {
                 { email: '', mobile: '', area_code: '', password: '' },
               ])
             }
+            className="gap-1.5 text-xs mt-2"
           >
-            <Plus className="h-4 w-4 mr-1" /> {t('config.ds_core.accounts.add')}
+            <Plus className="h-3.5 w-3.5" />
+            <span>{t('config.accounts.add')}</span>
           </Button>
         </CardContent>
       </Card>
 
-      {/* ── API Keys (always visible) ─────────────────────────── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Key className="h-5 w-5" /> {t('config.sections.apiKeys')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {config.api_keys.map((k, i) => (
-            <div key={k.key} className="flex items-center gap-2 p-2 border rounded-md">
-              {/* Show/hide toggle */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="shrink-0"
-                onClick={() =>
-                  setRevealedKeys((prev) => ({ ...prev, [i]: !prev[i] }))
-                }
-              >
-                {revealedKeys[i] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </Button>
-              {/* Key value */}
-              <Input
-                type={revealedKeys[i] ? 'text' : 'password'}
-                value={k.key}
-                onChange={(e) => {
-                  const next = [...config.api_keys];
-                  next[i] = { ...next[i], key: e.target.value };
-                  update(['api_keys'], next);
-                }}
-                className="flex-1 font-mono text-xs"
-              />
-              {/* Copy */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="shrink-0"
-                onClick={() => copyToClipboard(k.key)}
-                title={t('config.apiKeys.copyTitle')}
-              >
-                <Copy className="h-4 w-4" />
-              </Button>
-              {/* Description */}
-              <input
-                className="flex-1 min-w-[80px] bg-transparent border-b border-dashed border-muted-foreground/30 text-sm px-1 outline-none focus:border-primary"
-                value={k.description}
-                placeholder={t('config.apiKeys.placeholder')}
-                onChange={(e) => {
-                  const next = [...config.api_keys];
-                  next[i] = { ...next[i], description: e.target.value };
-                  update(['api_keys'], next);
-                }}
-              />
-              {/* Delete */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="shrink-0"
-                onClick={() => update(['api_keys'], config.api_keys.filter((_, j) => j !== i))}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          ))}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const newKey = generateApiKey();
-              update(['api_keys'], [
-                ...config.api_keys,
-                { key: newKey, description: '' },
-              ]);
-            }}
-          >
-            <Plus className="h-4 w-4 mr-1" /> {t('config.apiKeys.add')}
-          </Button>
-        </CardContent>
-      </Card>
-
-
-      {/* ── Admin (collapsible) ────────────────────────────── */}
-      <Section title="Admin" icon={Shield}>
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Badge variant={config.admin.password_set ? 'default' : 'secondary'}>
-              {config.admin.password_set ? t('config.admin.passwordSet') : t('config.admin.passwordNotSet')}
+      {/* ── 2. Client API Keys Management ─────────────────────────── */}
+      <Card className="border shadow-sm">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <Key className="h-4 w-4 text-primary" />
+              <span>{t('config.sections.apiKeys')}</span>
+            </CardTitle>
+            <Badge variant="secondary" className="font-mono text-xs">
+              {t('config.apiKeys.countLabel', { count: config.api_keys.length })}
             </Badge>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm text-muted-foreground block mb-1">{t('config.admin.oldPassword')}</label>
-              <Input
-                type="password"
-                value={oldPassword}
-                onChange={(e) => setOldPassword(e.target.value)}
-                placeholder={t('config.admin.oldPasswordPlaceholder')}
-              />
+          <CardDescription className="text-xs">
+            {t('config.apiKeys.cardDescription')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 pt-2">
+          {config.api_keys.length === 0 ? (
+            <div className="text-center py-6 border border-dashed rounded-xl text-xs text-muted-foreground">
+              {t('config.apiKeys.empty')}
             </div>
-            <div>
-              <label className="text-sm text-muted-foreground block mb-1">{t('config.admin.newPassword')}</label>
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder={t('config.admin.newPasswordPlaceholder')}
-              />
+          ) : (
+            <div className="divide-y border rounded-xl overflow-hidden bg-card/40">
+              {config.api_keys.map((k, i) => (
+                <div
+                  key={i}
+                  className="p-3.5 sm:p-2.5 space-y-2.5 sm:space-y-0 sm:flex sm:items-center sm:gap-2 hover:bg-muted/15 transition-colors"
+                >
+                  {/* Mobile Card Header */}
+                  <div className="flex sm:hidden items-center justify-between pb-1.5 border-b">
+                    <span className="text-xs font-semibold font-mono text-primary">
+                      API Key #{i + 1}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => update(['api_keys'], config.api_keys.filter((_, j) => j !== i))}
+                      className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-1" />
+                      {t('config.accounts.deleteLabel')}
+                    </Button>
+                  </div>
+
+                  <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                    <Input
+                      type={revealedKeys[i] ? 'text' : 'password'}
+                      value={k.key}
+                      onChange={(e) => {
+                        const next = [...config.api_keys];
+                        next[i] = { ...next[i], key: e.target.value };
+                        update(['api_keys'], next);
+                      }}
+                      className="font-mono text-xs flex-1"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setRevealedKeys((prev) => ({ ...prev, [i]: !prev[i] }))}
+                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                      title={t('config.apiKeys.toggleVisibility')}
+                    >
+                      {revealedKeys[i] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => copyToClipboard(k.key, i)}
+                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                      title={t('config.apiKeys.copyKeyTitle')}
+                    >
+                      {copiedKeyIdx === i ? (
+                        <Check className="h-3.5 w-3.5 text-emerald-500" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 sm:w-64">
+                    <Input
+                      placeholder={t('config.apiKeys.placeholder')}
+                      value={k.description}
+                      onChange={(e) => {
+                        const next = [...config.api_keys];
+                        next[i] = { ...next[i], description: e.target.value };
+                        update(['api_keys'], next);
+                      }}
+                      className="text-xs flex-1"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => update(['api_keys'], config.api_keys.filter((_, j) => j !== i))}
+                      className="hidden sm:flex h-8 w-8 shrink-0 text-destructive hover:bg-destructive/10"
+                      title={t('config.apiKeys.deleteKeyTitle')}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
-        </div>
-      </Section>
-      <Separator className="my-2" />
+          )}
 
-      {/* ── Server (collapsible) ──────────────────────────────── */}
-      <Section title={t('config.sections.server')} icon={Server}>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="text-sm text-muted-foreground block mb-1">{t('config.server.host')}</label>
-            <Input value={config.server.host} onChange={(e) => update(['server', 'host'], e.target.value)} />
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground block mb-1">{t('config.server.port')}</label>
-            <Input
-              type="number"
-              value={config.server.port}
-              onChange={(e) => update(['server', 'port'], Number(e.target.value))}
-            />
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground block mb-1">{t('config.server.corsOrigins')}</label>
-            <Input
-              value={config.server.cors_origins.join(', ')}
-              onChange={(e) =>
-                update(
-                  ['server', 'cors_origins'],
-                  e.target.value.split(/,\s*/).filter(Boolean),
-                )
-              }
-            />
-          </div>
-        </div>
-      </Section>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              update(['api_keys'], [
+                ...config.api_keys,
+                { key: generateApiKey(), description: 'Default API Key' },
+              ])
+            }
+            className="gap-1.5 text-xs mt-2"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>{t('config.apiKeys.add')}</span>
+          </Button>
+        </CardContent>
+      </Card>
 
-      {/* ── DeepSeek (collapsible) ────────────────────────────── */}
-      <Section title={t('config.sections.deepseek')} icon={Cpu}>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="text-sm text-muted-foreground block mb-1">API Base</label>
-            <Input
-              value={config.ds_core.api_base}
-              onChange={(e) => update(['ds_core', 'api_base'], e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground block mb-1">WASM URL</label>
-            <Input
-              value={config.ds_core.wasm_url}
-              onChange={(e) => update(['ds_core', 'wasm_url'], e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground block mb-1">User-Agent</label>
-            <Input
-              value={config.ds_core.user_agent}
-              onChange={(e) => update(['ds_core', 'user_agent'], e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground block mb-1">Client Version</label>
-            <Input
-              value={config.ds_core.client_version}
-              onChange={(e) => update(['ds_core', 'client_version'], e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground block mb-1">Client Platform</label>
-            <Input
-              value={config.ds_core.client_platform}
-              onChange={(e) => update(['ds_core', 'client_platform'], e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground block mb-1">Client Locale</label>
-            <Input
-              value={config.ds_core.client_locale}
-              onChange={(e) => update(['ds_core', 'client_locale'], e.target.value)}
-            />
-          </div>
-        </div>
-      </Section>
-
-      {/* ── Models (collapsible) ──────────────────────────────── */}
-      <Section title={t('config.sections.models')} icon={Globe}>
-        <div className="space-y-3">
-          {config.ds_core.model_types.map((_, i) => (
-            <div key={i} className="flex flex-wrap items-end gap-2 p-3 border rounded-md">
-              <div className="flex-1 min-w-[120px]">
-                <label className="text-xs text-muted-foreground">{t('config.modelsSection.typeName')}</label>
-                <Input
-                  value={config.ds_core.model_types[i]}
-                  onChange={(e) => {
-                    const next = [...config.ds_core.model_types];
-                    next[i] = e.target.value;
-                    update(['ds_core', 'model_types'], next);
-                  }}
-                />
-              </div>
-              <div className="w-20">
-                <label className="text-xs text-muted-foreground">{t('config.modelsSection.maxInput')}</label>
-                <Input
-                  type="number"
-                  value={config.ds_core.max_input_tokens[i]}
-                  onChange={(e) => {
-                    const next = [...config.ds_core.max_input_tokens];
-                    next[i] = Number(e.target.value);
-                    update(['ds_core', 'max_input_tokens'], next);
-                  }}
-                />
-              </div>
-              <div className="w-20">
-                <label className="text-xs text-muted-foreground">{t('config.modelsSection.maxOutput')}</label>
-                <Input
-                  type="number"
-                  value={config.ds_core.max_output_tokens[i]}
-                  onChange={(e) => {
-                    const next = [...config.ds_core.max_output_tokens];
-                    next[i] = Number(e.target.value);
-                    update(['ds_core', 'max_output_tokens'], next);
-                  }}
-                />
-              </div>
-              <div className="w-24">
-                <label className="text-xs text-muted-foreground">{t('config.modelsSection.inputCharLimit')}</label>
-                <Input
-                  type="number"
-                  value={config.ds_core.input_character_limits[i]}
-                  onChange={(e) => {
-                    const next = [...config.ds_core.input_character_limits];
-                    next[i] = Number(e.target.value);
-                    update(['ds_core', 'input_character_limits'], next);
-                  }}
-                />
-              </div>
-              <div className="flex-1 min-w-[120px]">
-                <label className="text-xs text-muted-foreground">{t('config.modelsSection.alias')}</label>
-                <Input
-                  value={config.ds_core.model_aliases[i] || ''}
-                  onChange={(e) => {
-                    const next = [...config.ds_core.model_aliases];
-                    next[i] = e.target.value;
-                    update(['ds_core', 'model_aliases'], next);
-                  }}
-                />
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="shrink-0"
-                onClick={() => {
-                  update(['ds_core', 'model_types'], config.ds_core.model_types.filter((_, j) => j !== i));
-                  update(['ds_core', 'max_input_tokens'], config.ds_core.max_input_tokens.filter((_, j) => j !== i));
-                  update(
-                    ['ds_core', 'max_output_tokens'],
-                    config.ds_core.max_output_tokens.filter((_, j) => j !== i),
-                  );
-                  update(
-                    ['ds_core', 'input_character_limits'],
-                    config.ds_core.input_character_limits.filter((_, j) => j !== i),
-                  );
-                  update(['ds_core', 'model_aliases'], config.ds_core.model_aliases.filter((_, j) => j !== i));
-                }}
+      {/* ── 3. Model Types & Token Limits ─────────────────────────── */}
+      <Card className="border shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <Boxes className="h-4 w-4 text-primary" />
+            <span>{t('config.sections.models')}</span>
+          </CardTitle>
+          <CardDescription className="text-xs">
+            {t('config.modelsSection.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 pt-2">
+          <div className="divide-y border rounded-xl overflow-hidden bg-card/40">
+            {config.ds_core.model_types.map((type, i) => (
+              <div
+                key={i}
+                className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 p-3 items-end hover:bg-muted/15 transition-colors"
               >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          ))}
+                <div className="sm:col-span-3">
+                  <label htmlFor={`mod-type-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
+                    {t('config.modelsSection.typeName')}
+                  </label>
+                  <Input
+                    id={`mod-type-${i}`}
+                    value={type}
+                    onChange={(e) => {
+                      const next = [...config.ds_core.model_types];
+                      next[i] = e.target.value;
+                      update(['ds_core', 'model_types'], next);
+                    }}
+                    className="font-mono text-xs"
+                  />
+                </div>
+
+                <div className="sm:col-span-3">
+                  <label htmlFor={`mod-in-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
+                    {t('config.modelsSection.maxInput')}
+                  </label>
+                  <Input
+                    id={`mod-in-${i}`}
+                    type="number"
+                    value={config.ds_core.max_input_tokens[i] ?? 1048576}
+                    onChange={(e) => {
+                      const next = [...config.ds_core.max_input_tokens];
+                      next[i] = Number(e.target.value);
+                      update(['ds_core', 'max_input_tokens'], next);
+                    }}
+                    className="font-mono text-xs"
+                  />
+                </div>
+
+                <div className="sm:col-span-3">
+                  <label htmlFor={`mod-out-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
+                    {t('config.modelsSection.maxOutput')}
+                  </label>
+                  <Input
+                    id={`mod-out-${i}`}
+                    type="number"
+                    value={config.ds_core.max_output_tokens[i] ?? 384000}
+                    onChange={(e) => {
+                      const next = [...config.ds_core.max_output_tokens];
+                      next[i] = Number(e.target.value);
+                      update(['ds_core', 'max_output_tokens'], next);
+                    }}
+                    className="font-mono text-xs"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label htmlFor={`mod-alias-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
+                    {t('config.modelsSection.alias')}
+                  </label>
+                  <Input
+                    id={`mod-alias-${i}`}
+                    placeholder="deepseek-chat"
+                    value={config.ds_core.model_aliases?.[i] || ''}
+                    onChange={(e) => {
+                      const next = [...(config.ds_core.model_aliases || [])];
+                      next[i] = e.target.value;
+                      update(['ds_core', 'model_aliases'], next);
+                    }}
+                    className="font-mono text-xs"
+                  />
+                </div>
+
+                <div className="sm:col-span-1 flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      const nextTypes = config.ds_core.model_types.filter((_, j) => j !== i);
+                      const nextIn = config.ds_core.max_input_tokens.filter((_, j) => j !== i);
+                      const nextOut = config.ds_core.max_output_tokens.filter((_, j) => j !== i);
+                      const nextAliases = (config.ds_core.model_aliases || []).filter((_, j) => j !== i);
+                      update(['ds_core', 'model_types'], nextTypes);
+                      update(['ds_core', 'max_input_tokens'], nextIn);
+                      update(['ds_core', 'max_output_tokens'], nextOut);
+                      update(['ds_core', 'model_aliases'], nextAliases);
+                    }}
+                    className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                    title={t('config.modelsSection.deleteModelTitle')}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+
           <Button
             variant="outline"
             size="sm"
             onClick={() => {
-              update(['ds_core', 'model_types'], [...config.ds_core.model_types, 'new']);
-              update(['ds_core', 'max_input_tokens'], [...config.ds_core.max_input_tokens, 32000]);
-              update(['ds_core', 'max_output_tokens'], [...config.ds_core.max_output_tokens, 8000]);
-              update(['ds_core', 'input_character_limits'], [...config.ds_core.input_character_limits, 2621440]);
-              update(['ds_core', 'model_aliases'], [...config.ds_core.model_aliases, '']);
+              update(['ds_core', 'model_types'], [...config.ds_core.model_types, 'custom']);
+              update(['ds_core', 'max_input_tokens'], [...config.ds_core.max_input_tokens, 1048576]);
+              update(['ds_core', 'max_output_tokens'], [...config.ds_core.max_output_tokens, 384000]);
             }}
+            className="gap-1.5 text-xs mt-2"
           >
-            <Plus className="h-4 w-4 mr-1" /> {t('config.modelsSection.add')}
+            <Plus className="h-3.5 w-3.5" />
+            <span>{t('config.modelsSection.add')}</span>
           </Button>
-        </div>
-      </Section>
+        </CardContent>
+      </Card>
 
-      {/* ── Tool Call Tags (collapsible) ──────────────────────── */}
-      <Section title={t('config.sections.toolCallTags')} icon={Tags}>
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm text-muted-foreground block mb-1">{t('config.toolCallTags.extraStarts')}</label>
-            <div className="flex flex-wrap gap-2">
-              {config.ds_core.tool_call.extra_starts.map((tag, i) => (
-                <Badge key={i} variant="secondary" className="gap-1">
-                  {tag}
-                  <button
-                    onClick={() => {
-                      const next = config.ds_core.tool_call.extra_starts.filter((_, j) => j !== i);
-                      update(['ds_core', 'tool_call', 'extra_starts'], next);
-                    }}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </Badge>
-              ))}
+      {/* ── 4. Tool Call Tags ─────────────────────────────────────── */}
+      <Card className="border shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <Tags className="h-4 w-4 text-primary" />
+            <span>{t('config.sections.toolCallTags')}</span>
+          </CardTitle>
+          <CardDescription className="text-xs">
+            {t('config.toolCallTags.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="tag-starts" className="text-xs font-medium text-muted-foreground block mb-1.5">
+                {t('config.toolCallTags.extraStarts')}
+              </label>
+              <div className="flex flex-wrap gap-1.5 p-2 rounded-xl border bg-muted/20 min-h-[42px] items-center">
+                {config.ds_core.tool_call.extra_starts.map((tag, i) => (
+                  <Badge key={i} variant="secondary" className="font-mono text-xs gap-1 py-0.5">
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        update(
+                          ['ds_core', 'tool_call', 'extra_starts'],
+                          config.ds_core.tool_call.extra_starts.filter((_, j) => j !== i)
+                        )
+                      }
+                      className="ml-1 text-muted-foreground hover:text-foreground"
+                    >
+                      ×
+                    </button>
+                  </Badge>
+                ))}
+              </div>
               <Input
-                className="w-48 h-8 text-xs"
-                placeholder="新标签，回车添加"
+                id="tag-starts"
+                placeholder={t('config.toolCallTags.placeholder')}
+                className="text-xs font-mono mt-1.5"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                    e.preventDefault();
                     update(['ds_core', 'tool_call', 'extra_starts'], [
                       ...config.ds_core.tool_call.extra_starts,
                       e.currentTarget.value.trim(),
@@ -585,28 +685,37 @@ export function ConfigPage() {
                 }}
               />
             </div>
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground block mb-1">{t('config.toolCallTags.extraEnds')}</label>
-            <div className="flex flex-wrap gap-2">
-              {config.ds_core.tool_call.extra_ends.map((tag, i) => (
-                <Badge key={i} variant="secondary" className="gap-1">
-                  {tag}
-                  <button
-                    onClick={() => {
-                      const next = config.ds_core.tool_call.extra_ends.filter((_, j) => j !== i);
-                      update(['ds_core', 'tool_call', 'extra_ends'], next);
-                    }}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </Badge>
-              ))}
+
+            <div>
+              <label htmlFor="tag-ends" className="text-xs font-medium text-muted-foreground block mb-1.5">
+                {t('config.toolCallTags.extraEnds')}
+              </label>
+              <div className="flex flex-wrap gap-1.5 p-2 rounded-xl border bg-muted/20 min-h-[42px] items-center">
+                {config.ds_core.tool_call.extra_ends.map((tag, i) => (
+                  <Badge key={i} variant="secondary" className="font-mono text-xs gap-1 py-0.5">
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        update(
+                          ['ds_core', 'tool_call', 'extra_ends'],
+                          config.ds_core.tool_call.extra_ends.filter((_, j) => j !== i)
+                        )
+                      }
+                      className="ml-1 text-muted-foreground hover:text-foreground"
+                    >
+                      ×
+                    </button>
+                  </Badge>
+                ))}
+              </div>
               <Input
-                className="w-48 h-8 text-xs"
-                placeholder="新标签，回车添加"
+                id="tag-ends"
+                placeholder={t('config.toolCallTags.placeholder')}
+                className="text-xs font-mono mt-1.5"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                    e.preventDefault();
                     update(['ds_core', 'tool_call', 'extra_ends'], [
                       ...config.ds_core.tool_call.extra_ends,
                       e.currentTarget.value.trim(),
@@ -617,32 +726,57 @@ export function ConfigPage() {
               />
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Floating Action Bar (Docked to Bottom of Viewport, Appears Only When Header Actions Are Scrolled Out of View) ── */}
+      <div
+        className={cn(
+          'fixed bottom-20 md:bottom-4 left-3.5 right-3.5 md:left-20 md:right-6 z-40 max-w-5xl mx-auto flex items-center justify-between p-3 sm:p-3.5 rounded-2xl bg-card/95 backdrop-blur-md border shadow-xl ring-1 ring-black/5 dark:ring-white/10 transition-all duration-300',
+          isSidebarCollapsed ? 'lg:left-20 lg:right-6' : 'lg:left-72 lg:right-8',
+          isHeaderActionVisible
+            ? 'opacity-0 translate-y-6 pointer-events-none'
+            : 'opacity-100 translate-y-0 pointer-events-auto'
+        )}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="flex h-2.5 w-2.5 relative shrink-0">
+            {isDirty ? (
+              <>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+              </>
+            ) : (
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+            )}
+          </span>
+          <span className="text-xs font-medium text-foreground truncate">
+            {isDirty
+              ? t('config.unsavedChanges')
+              : t('config.allSynced')}
+          </span>
         </div>
-      </Section>
 
-      {/* ── Proxy (collapsible) ───────────────────────────────── */}
-      <Section title={t('config.sections.proxy')} icon={Globe}>
-        <div>
-            <label className="text-sm text-muted-foreground block mb-1">{t('config.proxy.url')}</label>
-          <Input
-            value={config.proxy?.url || ''}
-            placeholder={t('config.proxy.placeholder')}
-            onChange={(e) => update(['proxy', 'url'], e.target.value || null)}
-          />
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleCancel}
+            disabled={saving || !isDirty}
+            className="h-8 text-xs shrink-0"
+          >
+            {t('config.cancel')}
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={saving || !isDirty}
+            className="h-8 gap-1.5 text-xs shadow-sm shrink-0"
+          >
+            <Save className="h-3.5 w-3.5" />
+            <span>{saving ? t('config.saving') : t('config.save')}</span>
+          </Button>
         </div>
-      </Section>
-
-      <Separator className="my-2" />
-
-      {/* ── Action buttons ────────────────────────────────────── */}
-      <div className="flex justify-end gap-3">
-        <Button variant="outline" onClick={handleCancel} disabled={saving}>
-          {t('config.cancel')}
-        </Button>
-        <Button onClick={handleSave} disabled={saving}>
-          <Save className="h-5 w-5 mr-2" />
-          {saving ? t('config.saving') : t('config.save')}
-        </Button>
       </div>
     </div>
   );

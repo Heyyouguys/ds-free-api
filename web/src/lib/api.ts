@@ -13,7 +13,7 @@ export function clearToken() {
 
 let onUnauthorized: (() => void) | null = null;
 
-/** 注册 401 回调：收到 401 时自动调用（用于 AuthProvider 同步 token 状态） */
+/** Register 401 callback: automatically invoked upon 401 response (for AuthProvider token synchronization) */
 export function setOnUnauthorized(cb: (() => void) | null) {
   onUnauthorized = cb;
 }
@@ -139,6 +139,12 @@ export interface ModelInfo {
   object: string;
   created: number;
   owned_by: string;
+  max_input_tokens?: number;
+  max_output_tokens?: number;
+  context_length?: number;
+  context_window?: number;
+  max_tokens?: number;
+  max_completion_tokens?: number;
 }
 
 export interface ModelListResponse {
@@ -204,10 +210,50 @@ export interface FullConfig {
   api_keys: ApiKeyEntry[];
 }
 
-// ── Config API ────────────────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function normalizeConfig(raw: any): FullConfig {
+  if (!raw) raw = {};
+  const accounts = raw.ds_core?.accounts ?? raw.accounts ?? [];
+  const core = raw.ds_core ?? raw.deepseek ?? {};
+  
+  return {
+    server: {
+      host: raw.server?.host ?? '127.0.0.1',
+      port: raw.server?.port ?? 22217,
+      cors_origins: raw.server?.cors_origins ?? ['http://localhost:22217'],
+    },
+    ds_core: {
+      accounts: Array.isArray(accounts) ? accounts : [],
+      api_base: core.api_base ?? 'https://chat.deepseek.com/api/v0',
+      wasm_url: core.wasm_url ?? '',
+      user_agent: core.user_agent ?? 'DeepSeek/2.0.4 Android/35',
+      client_version: core.client_version ?? '2.0.4',
+      client_platform: core.client_platform ?? 'android',
+      client_locale: core.client_locale ?? 'zh_CN',
+      model_types: Array.isArray(core.model_types) ? core.model_types : ['default', 'expert'],
+      max_input_tokens: Array.isArray(core.max_input_tokens) ? core.max_input_tokens : [1048576, 1048576],
+      max_output_tokens: Array.isArray(core.max_output_tokens) ? core.max_output_tokens : [384000, 384000],
+      input_character_limits: Array.isArray(core.input_character_limits) ? core.input_character_limits : [],
+      model_aliases: Array.isArray(core.model_aliases) ? core.model_aliases : [],
+      tool_call: core.tool_call ?? {
+        extra_starts: ['<|tool_call_begin|>', '<tool_calls>', '<tool_call>'],
+        extra_ends: ['<|tool_call_end|>', '</tool_calls>', '</tool_call>'],
+      },
+    },
+    proxy: {
+      url: raw.proxy?.url ?? null,
+    },
+    admin: {
+      password_set: raw.admin?.password_set ?? true,
+      jwt_issued_at: raw.admin?.jwt_issued_at ?? Date.now(),
+    },
+    api_keys: Array.isArray(raw.api_keys) ? raw.api_keys : [],
+  };
+}
 
 export async function apiFetchConfig(): Promise<FullConfig> {
-  return apiFetch<FullConfig>('/admin/api/config');
+  const data = await apiFetch<unknown>('/admin/api/config');
+  return normalizeConfig(data);
 }
 
 export async function apiSaveConfig(config: Record<string, unknown>): Promise<{ ok: boolean }> {
@@ -240,4 +286,67 @@ export async function apiFetchStats(): Promise<StatsSnapshot> {
 
 export async function apiFetchModels(): Promise<ModelListResponse> {
   return apiFetch<ModelListResponse>('/admin/api/models');
+}
+
+/** Comprehensive multilingual error localizer for all backend auth & system messages */
+export function localizeAuthError(msg?: string, lang?: string): string {
+  if (!msg) return '';
+  const currentLang = lang || 'en';
+  if (currentLang.startsWith('zh')) return msg;
+
+  const isId = currentLang.startsWith('id');
+
+  // Rate limit / lockout
+  const lockoutMatch = msg.match(/(?:登录失败|请求)次数过多[，,\s]*请\s*(\d+)\s*秒后重试/);
+  if (lockoutMatch) {
+    const secs = lockoutMatch[1];
+    return isId
+      ? `Terlalu banyak percobaan gagal. Silakan coba lagi dalam ${secs} detik.`
+      : `Too many failed login attempts. Please retry in ${secs} seconds.`;
+  }
+
+  if (msg.includes('密码错误')) {
+    return isId ? 'Password salah. Silakan periksa kembali.' : 'Incorrect password. Please try again.';
+  }
+  if (msg.includes('未设置密码')) {
+    return isId
+      ? 'Password admin belum diatur. Silakan atur password terlebih dahulu.'
+      : 'Admin password is not set. Please set up a password first.';
+  }
+  if (msg.includes('密码已设置')) {
+    return isId
+      ? 'Password admin sudah diatur. Silakan login.'
+      : 'Admin password is already set. Please log in.';
+  }
+  if (msg.includes('密码长度至少') || msg.includes('不能少于6位') || msg.includes('至少 6 位')) {
+    return isId
+      ? 'Password harus memiliki panjang minimal 6 karakter.'
+      : 'Password must be at least 6 characters.';
+  }
+  if (msg.includes('旧密码错误')) {
+    return isId ? 'Password lama tidak sesuai.' : 'Incorrect old password.';
+  }
+  if (msg.includes('旧密码不能为空')) {
+    return isId ? 'Password lama tidak boleh kosong.' : 'Old password cannot be empty.';
+  }
+  if (msg.includes('新密码不能为空')) {
+    return isId ? 'Password baru tidak boleh kosong.' : 'New password cannot be empty.';
+  }
+  if (msg.includes('保存失败')) {
+    return isId ? 'Gagal menyimpan konfigurasi.' : 'Failed to save configuration.';
+  }
+  if (msg.includes('请求格式错误')) {
+    return isId ? 'Format data permintaan tidak valid.' : 'Invalid request data format.';
+  }
+  if (msg.includes('JWT 签发失败')) {
+    return isId ? 'Gagal menerbitkan token sesi.' : 'Failed to issue session token.';
+  }
+  if (msg.includes('登录失败')) {
+    return isId ? 'Gagal masuk. Periksa password Anda.' : 'Login failed. Please check your password.';
+  }
+  if (msg.includes('设置失败')) {
+    return isId ? 'Gagal mengatur password.' : 'Setup failed.';
+  }
+
+  return msg;
 }
