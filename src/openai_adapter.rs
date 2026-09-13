@@ -77,6 +77,7 @@ impl OpenAIAdapter {
                 mobile: a.mobile.clone(),
                 area_code: a.area_code.clone(),
                 password: a.password.clone(),
+                device_id: a.device_id.clone(),
             })
             .collect();
         let ds_core = Arc::new(DsCore::new(&core_cfg, accounts).await?);
@@ -344,6 +345,7 @@ impl OpenAIAdapter {
             mobile: creds.mobile.clone(),
             area_code: creds.area_code.clone(),
             password: creds.password.clone(),
+            device_id: creds.device_id.clone(),
         };
         self.ds_core.add_account(&ac).await
     }

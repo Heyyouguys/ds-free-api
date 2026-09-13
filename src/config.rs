@@ -124,6 +124,9 @@ pub struct Account {
     pub area_code: String,
     /// 密码
     pub password: String,
+    /// 浏览器设备指纹 ID（可选，规避登录风控用，见 config.example.toml 说明）
+    #[serde(default)]
+    pub device_id: String,
 }
 
 /// 代理配置

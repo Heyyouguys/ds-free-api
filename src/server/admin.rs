@@ -105,6 +105,7 @@ pub struct AccountView {
     pub mobile: String,
     pub area_code: String,
     pub password: String,
+    pub device_id: String,
 }
 
 // ── 脱敏 ─────────────────────────────────────────────────────────────────
@@ -126,6 +127,7 @@ fn mask_config(config: &Config) -> AdminConfigResponse {
                     mobile: a.mobile.clone(),
                     area_code: a.area_code.clone(),
                     password: a.password.clone(),
+                    device_id: a.device_id.clone(),
                 })
                 .collect(),
             api_base: config.ds_core.api_base.clone(),
@@ -282,6 +284,16 @@ pub(crate) async fn admin_put_config(
                     .find(|e| e.email == a.email && e.mobile == a.mobile)
             {
                 a.password.clone_from(&existing.password);
+            }
+            // device_id 为空时保留现有值（面板旧前端不发送该字段）
+            if a.device_id.is_empty()
+                && let Some(existing) = current
+                    .ds_core
+                    .accounts
+                    .iter()
+                    .find(|e| e.email == a.email && e.mobile == a.mobile)
+            {
+                a.device_id.clone_from(&existing.device_id);
             }
         }
         // Admin 配置：空的 password_hash/jwt_secret 保留现有值（前端不返回这些字段）

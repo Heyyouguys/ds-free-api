@@ -23,4 +23,6 @@ pub struct AccountConfig {
     pub mobile: String,
     pub area_code: String,
     pub password: String,
+    /// 浏览器设备指纹 ID（可选）：填写真实值可规避登录风控 RISK_DEVICE_DETECTED
+    pub device_id: String,
 }
