@@ -16,7 +16,7 @@ Rust API proxy exposing free DeepSeek model endpoints. Translates standard OpenA
 **Build prerequisites:** `cmake`, `g++`, `libclang-dev` — required to compile `wreq` (BoringSSL).
 
 **Key dependencies and why they exist:**
-- `wasmtime` — executes DeepSeek's PoW WASM solver; the entire PoW system depends on this
+- `wasmtime` — executes DeepSeek's PoW WASM solver; the entire PoW system depends on this (pinned to 48.x, see `.cargo/audit.toml`)
 - `tiktoken-rs` — client-side prompt token counting (DeepSeek returns 0 for `prompt_tokens`)
 - `pin-project-lite` — underpins every streaming response wrapper (`ConverterStream`, `ToolCallStream`, `RepairStream`, `StopDetectStream`)
 - `axum` / `wreq` — HTTP server and client respectively; `wreq` uses BoringSSL with Chrome 136 TLS fingerprint for WAF bypass
@@ -488,7 +488,9 @@ Follow `docs/code-style.md`:
 | Scripted regression test | `just adapter-cli -- source examples/adapter_cli-script.txt` | Runs all JSON samples in sequence |
 | Docker deployment | `docker/Dockerfile` + `docker/docker-compose.yaml` | Pre-built ghcr.io image, bind mounts for config/data |
 | e2e scenario test framework | `py-e2e-tests/` | JSON-driven scenarios with checks |
-| CI pipeline | `.github/workflows/ci.yml` | `cargo check + clippy + fmt + audit + machete` + `cargo test` |
+| CI pipeline | `.github/workflows/ci.yml` | `cargo check + clippy + fmt + audit + machete + outdated` + `cargo test` |
+| Dependency audit policy | `.cargo/audit.toml` | Documented upstream warnings that cannot be fixed here (wreq 5.x yanked, transitive lru unsound) |
+| Outdated wrapper | `scripts/check-outdated.sh` | `cargo outdated` fails to resolve because wreq 5.x is yanked; script skips only that known case |
 | Release workflow | `.github/workflows/release.yml` | Tag `v*` → 8 targets, 4 platforms, CHANGELOG release |
 | Code style | `docs/code-style.md` | 注释、命名、错误消息约定 |
 | Logging spec | `docs/logging-spec.md` | 日志级别、目标、模块级过滤 |
@@ -564,7 +566,8 @@ cargo clippy -- -D warnings
 cargo fmt --check
 cargo audit        # requires: cargo install cargo-audit
 cargo machete      # requires: cargo install cargo-machete
-cargo outdated     # requires: cargo install cargo-outdated
+scripts/check-outdated.sh  # wraps `cargo outdated --exit-code 1 --root-deps-only`
+                   # (skips only the known wreq-5.x-yank resolution failure)
 
 # Build
 cargo build
