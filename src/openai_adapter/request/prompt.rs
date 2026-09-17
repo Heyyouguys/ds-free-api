@@ -99,7 +99,10 @@ fn format_response_text(rf: &crate::openai_adapter::types::ResponseFormat) -> St
 }
 
 /// 构建 DeepSeek 原生标签格式的 prompt 字符串
-/// 顺序: [system(含 reminder)] [历史 user/tool/assistant 轮次...] <｜Assistant｜><think>[reminder]
+///
+/// 顺序：`<｜System｜>`（工具定义 / 格式规范 / 调用指令 / `response_format` 约束，
+/// 合并为普通 System 内容**注入一次**）→ 历史 user/tool/assistant 轮次 →
+/// 末尾补 `<｜Assistant｜>` 锚点（最后一条已是 assistant 则保持原样）。
 pub(crate) fn build(req: &ChatCompletionsRequest, tool_ctx: &ToolContext) -> String {
     let messages = merge_messages(&req.messages);
     let mut parts: Vec<String> = Vec::with_capacity(messages.len());
