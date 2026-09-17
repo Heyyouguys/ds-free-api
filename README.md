@@ -80,8 +80,10 @@ Compose 配置见 [docker/docker-compose.yaml](./docker/docker-compose.yaml)。
 
 #### 如何获取 `device_id`
 
-`device_id` 是数美（Shumei）SDK 生成的设备级指纹，同一浏览器/机器生成的 ID 可在多个账号间复用，
-取一次长期有效：
+`device_id` 是数美（Shumei）SDK 生成的设备级指纹。上游用它做账号关联与画像，
+因此**每个账号应使用各自独立的 `device_id`**（各自开一个无痕窗口 / 浏览器配置文件登录一次），
+不要把同一个值复用到多个账号。⚠️ 该值**不能伪造**（伪造的 base64 或普通字符串会返回
+`RISK_DEVICE_DETECTED`），必须来自真实浏览器；取一次长期有效：
 
 1. 用 Chrome 打开 `https://chat.deepseek.com/sign_in` 并登录一次（确保页面完全加载，风控脚本已初始化）
 2. 打开开发者工具 → Network，过滤 `users/login`

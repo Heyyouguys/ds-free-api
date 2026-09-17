@@ -80,8 +80,11 @@ Please register your own. You can refer to the method in [issue #62](https://git
 
 #### How to obtain `device_id`
 
-`device_id` is the device-level fingerprint produced by the Shumei SDK. It is per browser/machine,
-so one value can be reused across multiple accounts and only needs to be captured once:
+`device_id` is the device-level fingerprint produced by the Shumei SDK. Upstream uses it to link
+and profile accounts, so **each account should use its own `device_id`** (log in once per account in
+a separate incognito window / browser profile) — do not reuse one value across accounts. The value
+**cannot be faked** (a made-up base64 or plain string returns `RISK_DEVICE_DETECTED`); it must come
+from a real browser. One capture stays valid long-term:
 
 1. Open `https://chat.deepseek.com/sign_in` in Chrome and log in once (let the page fully load so the risk-control script initializes)
 2. Open DevTools → Network and filter for `users/login`

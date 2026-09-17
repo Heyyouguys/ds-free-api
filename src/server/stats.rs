@@ -9,6 +9,7 @@ use std::time::Instant;
 use dashmap::DashMap;
 use serde::Serialize;
 
+use super::mask_prefix;
 use super::store::StoreManager;
 
 /// 持久化间隔：每 30 次请求写盘一次
@@ -285,11 +286,7 @@ impl Stats {
                 .key_stats
                 .iter()
                 .map(|r| {
-                    let masked = if r.key().len() > 8 {
-                        format!("{}***", &r.key()[..8])
-                    } else {
-                        "***".to_string()
-                    };
+                    let masked = mask_prefix(r.key(), 8);
                     (
                         masked,
                         super::store::KeyStatsData {
@@ -376,11 +373,7 @@ impl Stats {
             .iter()
             .map(|r| {
                 // 脱敏：只显示前 8 位
-                let masked = if r.key().len() > 8 {
-                    format!("{}***", &r.key()[..8])
-                } else {
-                    "***".to_string()
-                };
+                let masked = mask_prefix(r.key(), 8);
                 (
                     masked,
                     KeyUsageSnapshot {

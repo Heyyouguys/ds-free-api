@@ -904,7 +904,7 @@ mod tests {
                     opens,
                     closes,
                     "chunk 内标签不成对（半截标签）: {:?}",
-                    &chunk[..chunk.len().min(60)]
+                    chunk.chars().take(60).collect::<String>()
                 );
             }
         }
@@ -928,7 +928,7 @@ mod tests {
             assert!(
                 chunk.starts_with(TAG_START),
                 "chunk 未从标签边界开始: {:?}",
-                &chunk[..chunk.len().min(40)]
+                chunk.chars().take(40).collect::<String>()
             );
         }
     }

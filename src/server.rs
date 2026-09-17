@@ -36,6 +36,19 @@ use handlers::AppState;
 #[derive(Clone)]
 pub(crate) struct ApiKeyExt(pub(crate) String);
 
+/// 脱敏字符串前缀：超过 `keep` 个字符时保留前 `keep` 个字符并追加 `***`，否则整体打码
+///
+/// 使用 `chars()` 而非字节切片：`api_keys` 未约束为 ASCII，直接 `&s[..keep]`
+/// 在含中文 / emoji 的 key 上会切到 UTF-8 续字节而 panic。
+pub(crate) fn mask_prefix(s: &str, keep: usize) -> String {
+    if s.chars().count() > keep {
+        let prefix: String = s.chars().take(keep).collect();
+        format!("{prefix}***")
+    } else {
+        "***".to_string()
+    }
+}
+
 /// 启动 HTTP 服务器
 pub async fn run(config: Config, config_path: PathBuf) -> anyhow::Result<()> {
     let cors_origins = config.server.cors_origins.clone();
@@ -621,6 +634,18 @@ description = "test"
 
         let none = Request::builder().body(Body::empty()).unwrap();
         assert_eq!(extract_api_token(&none), None);
+    }
+
+    /// 脱敏必须按字符截断：`api_keys` 未限制为 ASCII，字节切片会 panic
+    #[test]
+    fn mask_prefix_handles_non_ascii() {
+        assert_eq!(mask_prefix("sk-abcdefghij", 8), "sk-abcde***");
+        assert_eq!(mask_prefix("sk-short", 8), "***");
+        assert_eq!(
+            mask_prefix("密钥密钥密钥密钥密钥", 8),
+            "密钥密钥密钥密钥***"
+        );
+        assert_eq!(mask_prefix("🔑🔑🔑", 2), "🔑🔑***");
     }
 
     #[tokio::test]

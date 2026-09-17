@@ -603,7 +603,7 @@ where
                                             }
                                             *this.state = ToolParseState::Done;
                                         } else {
-                                            trace!(target: "adapter", "tool_parser parse failed, collected=\n{}", &collected[..collected.len().min(500)]);
+                                            trace!(target: "adapter", "tool_parser parse failed, collected=\n{}", &collected[..floor_char_boundary(collected, 500)]);
                                             warn!(target: "adapter", "tool_parser parse failed -> requesting repair");
                                             let collected = collected.to_string();
                                             if before.is_empty() {
@@ -679,7 +679,7 @@ where
                                         }
                                         *this.state = ToolParseState::Done;
                                     } else {
-                                        trace!(target: "adapter", "tool_parser parse failed (stream end), collected=\n{}", &collected[..collected.len().min(500)]);
+                                        trace!(target: "adapter", "tool_parser parse failed (stream end), collected=\n{}", &collected[..floor_char_boundary(&collected, 500)]);
                                         warn!(target: "adapter", "tool_parser parse failed -> requesting repair");
                                         return Poll::Ready(Some(Err(
                                             OpenAIAdapterError::ToolCallRepairNeeded(collected),
@@ -811,6 +811,16 @@ mod tests {
     }
     fn tool_ts(content: &str, suffix: &str) -> String {
         format!("{TOOL_CALL_START}{content}{TOOL_CALL_END}{suffix}")
+    }
+
+    /// 回归：trace 日志预览用 floor_char_boundary 截断，不得切开多字节字符
+    #[test]
+    fn floor_char_boundary_never_splits_multibyte() {
+        let s = "中".repeat(300); // 900 字节，索引 500 落在字符内部
+        let idx = floor_char_boundary(&s, 500);
+        assert!(s.is_char_boundary(idx));
+        assert!(idx <= 500);
+        let _ = &s[..idx];
     }
 
     #[test]

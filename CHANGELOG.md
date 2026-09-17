@@ -22,6 +22,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`device_id` 策略更正**：文档从「设备级、可复用于多个账号」改为
   **「每个账号使用独立 device_id」**。该指纹是设备级的，上游用它做关联与画像
 
+### Fixed
+
+- **UTF-8 切片 panic（多语言输入）**：错误消息 / trace 日志按字节截断预览文本，
+  中文 / emoji 输出下会切到 UTF-8 续字节而 panic。改为 `floor_char_boundary` /
+  按字符截断：
+  - `src/openai_adapter/response.rs` —— 工具修复失败的错误消息预览
+  - `src/openai_adapter/response/tool_parser.rs` —— 两处解析失败 trace 预览
+  - `ds_core/src/chat/request.rs` —— 两处测试断言消息
+- **非 ASCII API Key / 账号 ID 脱敏 panic**：`api_keys` 未约束为 ASCII，
+  `&key[..8]` 之类的字节切片在含中文 / emoji 的 key 上会 panic。
+  新增 `server::mask_prefix` 统一按字符截断（`handlers.rs` / `stats.rs` / `config.rs` 共 6 处）
+- **e2e 测试框架读取旧配置段名**：`py-e2e-tests/config.py` 仍读 `[deepseek]`
+  （v0.2.x 已更名为 `[ds_core]`），导致永远按 `default/expert/vision` 三个模型测试
+  （后两者上游已下线，产生大量假失败），且账号数恒为 0、并发恒为 1。
+  改为读取 `[ds_core]`，默认值与 `src/config.rs` 的 `default_*` 对齐
+
+### Docs
+
+- 统一 `device_id` 策略描述：`README.md` / `README.en.md` / `docs/development.md`
+  此前仍写「设备级、可在多账号间复用」，与本次更正后的「每账号独立」结论矛盾；
+  现均改为每账号独立，并注明伪造值会被 `RISK_DEVICE_DETECTED`（biz_code 11）拒绝
+
 ### 为什么改这个，而不是改 prompt 注入格式
 
 仓库内 `stats.json` 提供了两次封禁的对照数据：
@@ -54,12 +76,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > 排查方法提示：不要用**已封禁**账号验证此事。封禁检查可能先于设备校验，
 > 返回 `USER_IS_BANNED` 会让人误判为「伪造值也通过了」。
 
-### ⚠️ 这些措施尚未验证
+### 2026-09-17 实测：配额内的单账号压测**仍被禁言**
 
-配额与指纹隔离**都未在真实账号上验证过有效性** —— 三个测试账号当前全部处于禁言期
-（最快 09-14 04:41 解禁）。它们是基于上述对照数据做出的**待验证**缓解，
-不是已证明的解法。验证方案：解禁后用**单账号 + 独立 device_id**，
-在配额内（≤60 次/小时）跑一轮全量 e2e，观察是否仍被禁言。
+三个账号解禁后**逐号单独**验证（每号独立启动，跑一轮 basic + repair，约 27 次上游请求，
+远低于 60 次/小时配额）：
+
+| 账号 | 初始化 | 全量 e2e | 复查结果 |
+|---|---|---|---|
+| `l3366599051@163.com` | 04:08:53 ✅ | 04:09–04:12（basic 13/14 + repair 10/10） | **04:21 已禁言**，`mute_until` ≈ 09-26 04:18 |
+| `1460183479@qq.com` | 04:12:54 ✅ | 04:14–04:17（basic 13/14 + repair 10/10） | **04:21 已禁言**，`mute_until` ≈ 09-26 04:18 |
+| `n1yu3@proton.me` | 04:17:21 ✅ | 04:19–04:21（basic 14/14 + repair 10/10） | 04:29 复查仍正常 |
+
+> 三次 basic 中仅有的失败均为上游 `code=7, rate limit reached` 的文件上传限流
+> （重试 3 次后仍失败），与 prompt 注入无关；default 模型的对话 / 工具 / 流式 / 推理场景全部通过。
+
+结论与局限：
+
+- **「配额内就不会被禁言」没有得到支持**：账号 1、2 在约 27 次请求后即被重新禁言；
+- 账号 1、2 的 `mute_until` 相差不到 1 秒，像**同一次风控判定**；二者历史上都曾被禁言，
+  而唯一没有禁言记录的账号 3 目前仍正常 —— 这与「账号历史 / 指纹关联」比「单次请求量」
+  更有解释力相符，但样本太小，不能下结论；
+- **本次实验使用了同一个真实浏览器 `device_id`**（当前环境直连被 AWS WAF 拦截，无法为每个
+  账号各生成一个真实指纹），因此**无法区分**「共用指纹」与「请求行为」各自的贡献；
+- 下一步的正确实验：为每个账号各注册一个真实 `device_id`，再按本表流程重跑。
+  在那之前，「指纹隔离」仍属未验证。
+
+> 实际使用建议：本代理**无法保证账号不被风控**；不要用长期账号压测，
+> 出现 `biz_code=5` 后立即停用等待解禁。
 
 ## [0.4.0] - 2026-09-13
 

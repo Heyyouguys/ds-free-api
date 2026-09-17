@@ -411,11 +411,8 @@ impl Config {
         let mut seen_keys = std::collections::HashSet::new();
         for k in &self.api_keys {
             if !seen_keys.insert(&k.key) {
-                let prefix = if k.key.len() > 12 {
-                    &k.key[..12]
-                } else {
-                    &k.key
-                };
+                // 按字符截断，避免非 ASCII key 在字节切片处 panic
+                let prefix: String = k.key.chars().take(12).collect();
                 return Err(ConfigError::Validation(format!(
                     "API key 重复: {}...",
                     prefix

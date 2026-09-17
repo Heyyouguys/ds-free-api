@@ -143,7 +143,7 @@ pub(crate) async fn execute_tool_repair(
     let (calls, _) = tool_parser::parse_tool_calls_with(&wrapped, tag_config).ok_or_else(|| {
         OpenAIAdapterError::Internal(format!(
             "修复模型返回无法解析为工具调用: {}",
-            &text[..text.len().min(200)]
+            &text[..floor_char_boundary(&text, 200)]
         ))
     })?;
 
@@ -645,6 +645,21 @@ mod tests {
         let mut events = meta_event();
         events.extend(make_event_stream(pieces, usage_tokens));
         events
+    }
+
+    /// 回归：解析失败时错误消息截取前 200 字节做预览，多语言输出下必须落在
+    /// char 边界，否则会 panic（与此前 stop 截断 panic 同源）。
+    #[tokio::test]
+    async fn execute_tool_repair_preview_does_not_split_multibyte() {
+        let text = format!(
+            "{}[{{\"name\": \"f\", \"arguments\": {{\"a\": \"{}\"",
+            tool_parser::TOOL_CALL_START,
+            "中文".repeat(80)
+        );
+        let events = make_event_stream(&[(text.as_str(), "RESPONSE")], None);
+        let cfg = default_tag_config();
+        let result = execute_tool_repair(Box::pin(futures::stream::iter(events)), &cfg).await;
+        assert!(result.is_err(), "非法 JSON 应返回错误而不是 panic");
     }
 
     #[tokio::test]

@@ -29,6 +29,7 @@ use crate::responses_adapter::{ResponsesAdapter, ResponsesOutput, ResponsesReque
 
 use super::auth::LoginLimiter;
 use super::error::ServerError;
+use super::mask_prefix;
 use super::stats::Stats;
 use super::store::StoreManager;
 use super::stream::SseBody;
@@ -86,13 +87,7 @@ impl Drop for TokenGuard {
             api_key: self
                 .api_key
                 .as_deref()
-                .map(|k| {
-                    if k.len() > 8 {
-                        format!("{}***", &k[..8])
-                    } else {
-                        "***".to_string()
-                    }
-                })
+                .map(|k| mask_prefix(k, 8))
                 .unwrap_or_default(),
             prompt_tokens: self.prompt_tokens,
             completion_tokens: ct,
@@ -138,11 +133,7 @@ const ANTHROPIC_REQUEST_ID: &str = "request-id";
 
 /// 脱敏账号 ID：邮箱/手机号只保留前 3 字符 + ***
 fn mask_account_id(id: &str) -> String {
-    if id.len() <= 3 {
-        "***".to_string()
-    } else {
-        format!("{}***", &id[..3])
-    }
+    mask_prefix(id, 3)
 }
 
 /// 应用状态
@@ -179,13 +170,7 @@ impl AppState {
         let api_key_masked = rec
             .api_key
             .as_deref()
-            .map(|k| {
-                if k.len() > 8 {
-                    format!("{}***", &k[..8])
-                } else {
-                    "***".to_string()
-                }
-            })
+            .map(|k| mask_prefix(k, 8))
             .unwrap_or_default();
         let log = super::stats::RequestLog {
             timestamp: std::time::SystemTime::now()
