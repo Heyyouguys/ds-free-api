@@ -92,6 +92,8 @@
       "mobile": "手机",
       "areaCode": "区号",
       "password": "密码",
+      "deviceId": "设备 ID",
+      "deviceIdPlaceholder": "浏览器设备指纹 ID",
       "add": "添加账号",
       "countLabel": "{{count}} 个账号",
       "accountNumber": "账号 #{{num}}",
