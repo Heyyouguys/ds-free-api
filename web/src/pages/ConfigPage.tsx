@@ -267,7 +267,7 @@ export function ConfigPage() {
 
                   {/* Fields (Stacked on mobile, 12-col grid on desktop/tablet) */}
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
-                    <div className="sm:col-span-4">
+                    <div className="sm:col-span-3">
                       <label htmlFor={`acc-email-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
                         {t('config.accounts.email')}
                       </label>
@@ -284,7 +284,7 @@ export function ConfigPage() {
                       />
                     </div>
 
-                    <div className="sm:col-span-3">
+                    <div className="sm:col-span-2">
                       <label htmlFor={`acc-mobile-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
                         {t('config.accounts.mobile')}
                       </label>
@@ -301,7 +301,7 @@ export function ConfigPage() {
                       />
                     </div>
 
-                    <div className="sm:col-span-2">
+                    <div className="sm:col-span-1">
                       <label htmlFor={`acc-code-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
                         {t('config.accounts.areaCode')}
                       </label>
@@ -346,6 +346,23 @@ export function ConfigPage() {
                       </div>
                     </div>
 
+                    <div className="sm:col-span-3">
+                      <label htmlFor={`acc-device-id-${i}`} className="text-[11px] font-medium text-muted-foreground block mb-1">
+                        {t('config.accounts.deviceId')}
+                      </label>
+                      <Input
+                        id={`acc-device-id-${i}`}
+                        placeholder={t('config.accounts.deviceIdPlaceholder')}
+                        value={a.device_id ?? ''}
+                        onChange={(e) => {
+                          const next = [...config.ds_core.accounts];
+                          next[i] = { ...next[i], device_id: e.target.value };
+                          update(['ds_core', 'accounts'], next);
+                        }}
+                        className="text-xs font-mono"
+                      />
+                    </div>
+
                     {/* Desktop Delete Button */}
                     <div className="hidden sm:flex sm:col-span-1 justify-end">
                       <Button
@@ -375,7 +392,7 @@ export function ConfigPage() {
             onClick={() =>
               update(['ds_core', 'accounts'], [
                 ...config.ds_core.accounts,
-                { email: '', mobile: '', area_code: '', password: '' },
+                { email: '', mobile: '', area_code: '', password: '', device_id: '' },
               ])
             }
             className="gap-1.5 text-xs mt-2"
