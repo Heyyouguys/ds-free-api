@@ -715,25 +715,25 @@ impl Chat {
                             .and_then(|c| c.as_str().map(String::from))
                     })
                     .unwrap_or_else(|| "(unknown)".into());
-log::warn!(
+                log::warn!(
+                    target: "ds_core::accounts",
+                    "req={} hint 错误: {}", request_id, hint_detail
+                );
+            }
+            let hint_ms = completion_start.elapsed().as_millis();
+            log::info!(
                 target: "ds_core::accounts",
-                "req={} hint 错误: {}", request_id, hint_detail
+                "req={} hint_error_cleanup: session_id={}, pow_ms={}, hint_ms={}, session_create_ms={}, total_ms={}",
+                request_id, session_id, pow_ms, hint_ms, session_create_ms, session_create_ms + hint_ms
             );
+            return Err(err);
         }
-        let hint_ms = completion_start.elapsed().as_millis();
+
         log::info!(
             target: "ds_core::accounts",
-            "req={} hint_error_cleanup: session_id={}, pow_ms={}, hint_ms={}, session_create_ms={}, total_ms={}",
-            request_id, session_id, pow_ms, hint_ms, session_create_ms, session_create_ms + hint_ms
+            "req={} sse_ready: resp_msg={}, pow_ms={}, completion_ms={}, session_create_ms={}, total_ms={}",
+            request_id, stop_id, pow_ms, ready_ms, session_create_ms, session_create_ms + ready_ms
         );
-        return Err(err);
-    }
-
-    log::info!(
-        target: "ds_core::accounts",
-        "req={} sse_ready: resp_msg={}, pow_ms={}, completion_ms={}, session_create_ms={}, total_ms={}",
-        request_id, stop_id, pow_ms, ready_ms, session_create_ms, session_create_ms + ready_ms
-    );
 
         // 8. 注册活跃 session
         {

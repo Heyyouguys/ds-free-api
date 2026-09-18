@@ -2,11 +2,11 @@
 //!
 //! 1 account = 1 session = 1 concurrency。多并发需横向扩展账号数。
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, AtomicU8, AtomicU64, Ordering};
-use std::time::{SystemTime, Instant};
-use std::sync::Mutex;
 use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicI64, AtomicU8, AtomicU64, Ordering};
+use std::time::SystemTime;
 
 use dashmap::DashMap;
 use futures::TryStreamExt;
@@ -81,7 +81,6 @@ impl AccountStatus {
         // For sliding window, compute window start as earliest timestamp in current window
         let window_started = {
             let now = now_secs();
-            let cutoff = now - WINDOW_SECS as i64;
             let ts = account.window.timestamps.lock().unwrap();
             ts.front().copied().unwrap_or(now)
         };
@@ -134,12 +133,11 @@ fn now_secs() -> i64 {
 
 /// 严格滑动窗口限流器
 ///
-/// 保证：任意时刻，最近 `WINDOW_SECS` 秒内的请求数 ≤ `limit`
+/// 保证：任意时刻，最近 `WINDOW_SECS` 秒内的请求数 ≤ 配额
 /// 使用 VecDeque 存储请求时间戳（Unix 秒），自动清理过期项。
-/// 
+///
 /// 设计为无锁读 + 细粒度锁写，适合高并发场景。
 struct SlidingWindowRateLimiter {
-    limit: u64,
     timestamps: Mutex<VecDeque<i64>>,
     /// 总请求数（累计，跨窗口）
     total_count: AtomicU64,
@@ -152,9 +150,8 @@ struct SlidingWindowRateLimiter {
 }
 
 impl SlidingWindowRateLimiter {
-    fn new(limit: u64) -> Self {
+    fn new() -> Self {
         Self {
-            limit,
             timestamps: Mutex::new(VecDeque::new()),
             total_count: AtomicU64::new(0),
             first_request_at: AtomicI64::new(0),
@@ -185,7 +182,11 @@ impl SlidingWindowRateLimiter {
         let window_used = self.used();
         let first = self.first_request_at.load(Ordering::Relaxed);
         let last = self.last_request_at.load(Ordering::Relaxed);
-        let intervals = self.recent_intervals.lock().map(|v| v.clone()).unwrap_or_default();
+        let intervals = self
+            .recent_intervals
+            .lock()
+            .map(|v| v.clone())
+            .unwrap_or_default();
         (total, window_used, first, last, intervals)
     }
 
@@ -196,15 +197,15 @@ impl SlidingWindowRateLimiter {
         let cutoff = now - WINDOW_SECS as i64;
 
         // 清理过期时间戳
-        while ts.front().map_or(false, |&t| t < cutoff) {
+        while ts.front().is_some_and(|&t| t < cutoff) {
             ts.pop_front();
         }
 
         ts.push_back(now);
         let window_used = ts.len() as u64;
-        
+
         drop(ts); // 释放锁
-        
+
         self.total_count.fetch_add(1, Ordering::Relaxed);
         self.record_interval(now);
         window_used
@@ -216,7 +217,7 @@ impl SlidingWindowRateLimiter {
         let mut ts = self.timestamps.lock().unwrap();
         let cutoff = now - WINDOW_SECS as i64;
 
-        while ts.front().map_or(false, |&t| t < cutoff) {
+        while ts.front().is_some_and(|&t| t < cutoff) {
             ts.pop_front();
         }
 
@@ -270,7 +271,7 @@ impl Account {
     }
 
     /// 创建一个 Invalid 状态的账号（初始化失败时使用，仍加入池以便前台展示）
-    fn new_invalid(creds: AccountConfig, hourly_quota: u64) -> Self {
+    fn new_invalid(creds: AccountConfig, _hourly_quota: u64) -> Self {
         Self {
             token: std::sync::RwLock::new(String::new().into()),
             email: creds.email.clone(),
@@ -279,32 +280,12 @@ impl Account {
             last_released: AtomicI64::new(0),
             error_count: AtomicU8::new(MAX_ERROR_COUNT),
             creds,
-            window: SlidingWindowRateLimiter::new(hourly_quota),
+            window: SlidingWindowRateLimiter::new(),
         }
     }
 
     fn get_total_requests(&self) -> u64 {
         self.window.total_count.load(Ordering::Relaxed)
-    }
-
-    fn get_window_started_at(&self) -> i64 {
-        // For sliding window, return earliest timestamp in current window
-        let now = now_secs();
-        let cutoff = now - WINDOW_SECS as i64;
-        let ts = self.window.timestamps.lock().unwrap();
-        ts.front().copied().unwrap_or(now)
-    }
-
-    fn get_first_request_ms(&self) -> i64 {
-        self.window.first_request_at.load(Ordering::Relaxed) * 1000
-    }
-
-    fn get_last_request_ms(&self) -> i64 {
-        self.window.last_request_at.load(Ordering::Relaxed) * 1000
-    }
-
-    fn get_recent_intervals(&self) -> Vec<i64> {
-        self.window.recent_intervals.lock().map(|v| v.clone()).unwrap_or_default()
     }
 }
 
@@ -818,7 +799,7 @@ async fn try_init_account(
         last_released: AtomicI64::new(0),
         error_count: AtomicU8::new(0),
         creds: creds.clone(),
-        window: SlidingWindowRateLimiter::new(10),
+        window: SlidingWindowRateLimiter::new(),
     })
 }
 
@@ -898,7 +879,7 @@ mod tests {
 
     #[test]
     fn sliding_window_counts_and_reports_usage() {
-        let w = SlidingWindowRateLimiter::new(10);
+        let w = SlidingWindowRateLimiter::new();
         assert_eq!(w.used(), 0);
         assert_eq!(w.record(), 1);
         assert_eq!(w.record(), 2);
@@ -929,7 +910,7 @@ mod tests {
 
     #[test]
     fn expired_sliding_window_resets_usage() {
-        let w = SlidingWindowRateLimiter::new(10);
+        let w = SlidingWindowRateLimiter::new();
         for _ in 0..5 {
             w.record();
         }
@@ -979,7 +960,7 @@ mod tests {
             last_released: AtomicI64::new(0),
             error_count: AtomicU8::new(0),
             creds: account(email, "dev"),
-        window: SlidingWindowRateLimiter::new(10),
+            window: SlidingWindowRateLimiter::new(),
         })
     }
 
