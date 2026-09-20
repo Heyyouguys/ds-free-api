@@ -18,6 +18,10 @@
 | `11` | `RISK_DEVICE_DETECTED` | 缺设备指纹，登录被风控拦截 | 为该账号配置 `device_id` |
 | `2` | `PASSWORD_OR_USER_NAME_IS_WRONG` | 账号或密码错误 | 核对凭据 |
 
+> 禁言（biz_code=5）在**登录响应的 `user.chat.is_muted` / `mute_until`**
+> 中即可见，`ds_core` 初始化时据此做早检，命中即不再创建 session /
+> 发送 health_check completion。
+
 ### 获取并配置 `device_id`
 
 `device_id` 由数美（Shumei）SDK 在浏览器中生成。它是**设备级**指纹，上游用它做关联与画像，

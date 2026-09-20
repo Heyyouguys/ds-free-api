@@ -12,7 +12,10 @@ use tokio::sync::RwLock;
 
 use crate::CoreError;
 use crate::config::{AccountConfig, DsCoreConfig};
-pub use client::{ClientError, CompletionPayload, DsClient, StopStreamPayload};
+pub use client::{
+    ChatSessionInfo, ClientError, CompletionPayload, DsClient, FetchSessionsData, LoginPayload,
+    StopStreamPayload,
+};
 pub use pool::{AccountGuard, AccountPool, AccountStatus, PoolError};
 pub use pow::{PowError, PowSolver};
 
@@ -40,6 +43,11 @@ impl Accounts {
             config.client_version.clone(),
             config.client_platform.clone(),
             config.client_locale.clone(),
+            config.client_bundle_id.clone(),
+            config.client_device_id.clone(),
+            config.client_device_model.clone(),
+            config.client_timezone_offset.clone(),
+            config.client_os.clone(),
             config.proxy_url.as_deref(),
         );
 
@@ -82,6 +90,25 @@ impl Accounts {
     /// 获取账号（立即返回）
     pub fn get_account(&self) -> Option<AccountGuard> {
         self.pool.get_account()
+    }
+
+    /// 拉取池中某一可用账号的会话列表（借一个空闲账号发起，见 issue #110）
+    pub async fn fetch_sessions(
+        &self,
+        updated_at: Option<f64>,
+    ) -> Result<FetchSessionsData, CoreError> {
+        let guard = self
+            .pool
+            .get_account_with_wait(5000)
+            .await
+            .ok_or(CoreError::Overloaded)?;
+        let token = guard.account().token();
+        self.client
+            .read()
+            .await
+            .fetch_sessions(&token, updated_at)
+            .await
+            .map_err(Into::into)
     }
 
     /// 标记账号 Error
@@ -262,6 +289,11 @@ impl Accounts {
             config.client_version.clone(),
             config.client_platform.clone(),
             config.client_locale.clone(),
+            config.client_bundle_id.clone(),
+            config.client_device_id.clone(),
+            config.client_device_model.clone(),
+            config.client_timezone_offset.clone(),
+            config.client_os.clone(),
             config.proxy_url.as_deref(),
         );
         let wasm_bytes = client.get_wasm().await?;

@@ -69,6 +69,11 @@ pub struct DsCoreView {
     pub client_version: String,
     pub client_platform: String,
     pub client_locale: String,
+    pub client_os: String,
+    pub client_bundle_id: String,
+    pub client_device_id: String,
+    pub client_device_model: String,
+    pub client_timezone_offset: String,
     pub model_types: Vec<String>,
     pub max_input_tokens: Vec<u32>,
     pub max_output_tokens: Vec<u32>,
@@ -151,6 +156,11 @@ fn mask_config(config: &Config) -> AdminConfigResponse {
             client_version: config.ds_core.client_version.clone(),
             client_platform: config.ds_core.client_platform.clone(),
             client_locale: config.ds_core.client_locale.clone(),
+            client_os: config.ds_core.client_os.clone(),
+            client_bundle_id: config.ds_core.client_bundle_id.clone(),
+            client_device_id: config.ds_core.client_device_id.clone(),
+            client_device_model: config.ds_core.client_device_model.clone(),
+            client_timezone_offset: config.ds_core.client_timezone_offset.clone(),
             model_types: config.ds_core.model_types.clone(),
             max_input_tokens: config.ds_core.max_input_tokens.clone(),
             max_output_tokens: config.ds_core.max_output_tokens.clone(),
@@ -268,6 +278,58 @@ pub(crate) async fn admin_account_statuses_detailed(State(state): State<AppState
         window_seconds: 3600,
     };
     json_response(&resp)
+}
+
+/// GET /admin/api/sessions —— 账号会话列表（分页）
+///
+/// `updated_at` 为上一页末尾会话的更新时间戳（Unix 秒），不传取第一页。
+/// 借用池中一个空闲账号发起；会话数据归属上游网页端（见 issue #110）。
+#[derive(Debug, Deserialize)]
+pub struct SessionsQuery {
+    pub updated_at: Option<f64>,
+}
+
+#[derive(Serialize)]
+pub struct AdminSessionsResponse {
+    pub sessions: Vec<ds_core::ChatSessionInfo>,
+    pub total: usize,
+    /// 是否还有下一页（上游 fetch_page 响应）
+    pub has_more: bool,
+    /// 下一页游标 = 本页末尾会话的 updated_at；None = 无更多
+    pub next_cursor: Option<f64>,
+}
+
+pub(crate) async fn admin_sessions(
+    State(state): State<AppState>,
+    Query(query): Query<SessionsQuery>,
+) -> Response {
+    match state.adapter.fetch_sessions(query.updated_at).await {
+        Ok(data) => {
+            let total = data.chat_sessions.len();
+            let has_more = data.has_more.unwrap_or(false);
+            let next_cursor = if has_more {
+                data.chat_sessions.last().and_then(|s| s.updated_at)
+            } else {
+                None
+            };
+            let resp = AdminSessionsResponse {
+                sessions: data.chat_sessions,
+                total,
+                has_more,
+                next_cursor,
+            };
+            json_response(&resp)
+        }
+        Err(crate::openai_adapter::OpenAIAdapterError::Overloaded) => error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "没有可用账号：账号池中所有账号均不可用（可能全部被禁言或初始化失败）。\
+             会话列表只从健康账号读取。",
+        ),
+        Err(e) => error_response(
+            StatusCode::from_u16(e.status_code()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            &e.to_string(),
+        ),
+    }
 }
 
 /// GET /admin/api/stats

@@ -150,6 +150,7 @@ fn build_router(state: AppState, cors_origins: Vec<String>) -> Router {
             "/admin/api/account-statuses-detailed",
             get(admin::admin_account_statuses_detailed),
         )
+        .route("/admin/api/sessions", get(admin::admin_sessions))
         .route("/admin/api/stats", get(admin::admin_stats))
         .route("/admin/api/models", get(admin::admin_models))
         .route("/admin/api/config", get(admin::admin_config))

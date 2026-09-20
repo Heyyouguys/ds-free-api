@@ -11,6 +11,16 @@ pub struct DsCoreConfig {
     pub client_version: String,
     pub client_platform: String,
     pub client_locale: String,
+    /// X-Client-Bundle-Id 请求头（真实客户端固定为 com.deepseek.chat）
+    pub client_bundle_id: String,
+    /// X-Device-Id 请求头（设备级 UUID，空 = 按 api_base 确定性派生）
+    pub client_device_id: String,
+    /// X-Device-Model 请求头（真实 Web 客户端发空串）
+    pub client_device_model: String,
+    /// X-Client-Timezone-Offset 请求头（分钟或秒，真实 Web 客户端 UTC+8 发 28800）
+    pub client_timezone_offset: String,
+    /// 登录 payload 的 os 字段（真实 Web 客户端为 "web"，App 为 "android"）
+    pub client_os: String,
     pub proxy_url: Option<String>,
     pub model_types: Vec<String>,
     pub input_character_limits: Vec<u32>,

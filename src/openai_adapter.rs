@@ -66,6 +66,11 @@ impl OpenAIAdapter {
             client_version: config.ds_core.client_version.clone(),
             client_platform: config.ds_core.client_platform.clone(),
             client_locale: config.ds_core.client_locale.clone(),
+            client_bundle_id: config.ds_core.client_bundle_id.clone(),
+            client_device_id: config.ds_core.client_device_id.clone(),
+            client_device_model: config.ds_core.client_device_model.clone(),
+            client_timezone_offset: config.ds_core.client_timezone_offset.clone(),
+            client_os: config.ds_core.client_os.clone(),
             proxy_url: config.proxy.url.clone(),
             model_types: config.ds_core.model_types.clone(),
             input_character_limits: config.ds_core.input_character_limits.clone(),
@@ -354,6 +359,17 @@ impl OpenAIAdapter {
         self.ds_core.account_statuses_detailed()
     }
 
+    /// 拉取账号的会话列表（`updated_at` 为分页游标，None = 第一页）
+    pub async fn fetch_sessions(
+        &self,
+        updated_at: Option<f64>,
+    ) -> Result<ds_core::FetchSessionsData, OpenAIAdapterError> {
+        self.ds_core
+            .fetch_sessions(updated_at)
+            .await
+            .map_err(OpenAIAdapterError::from)
+    }
+
     /// 动态添加账号
     pub async fn add_account(
         &self,
@@ -506,6 +522,11 @@ impl OpenAIAdapter {
             client_version: new_config.ds_core.client_version.clone(),
             client_platform: new_config.ds_core.client_platform.clone(),
             client_locale: new_config.ds_core.client_locale.clone(),
+            client_bundle_id: new_config.ds_core.client_bundle_id.clone(),
+            client_device_id: new_config.ds_core.client_device_id.clone(),
+            client_device_model: new_config.ds_core.client_device_model.clone(),
+            client_timezone_offset: new_config.ds_core.client_timezone_offset.clone(),
+            client_os: new_config.ds_core.client_os.clone(),
             proxy_url: new_config.proxy.url.clone(),
             model_types: new_config.ds_core.model_types.clone(),
             input_character_limits: new_config.ds_core.input_character_limits.clone(),

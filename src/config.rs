@@ -48,6 +48,21 @@ pub struct DsCoreSection {
     /// X-Client-Locale 请求头
     #[serde(default = "default_client_locale")]
     pub client_locale: String,
+    /// X-Client-Bundle-Id 请求头（真实客户端固定 com.deepseek.chat）
+    #[serde(default = "default_client_bundle_id")]
+    pub client_bundle_id: String,
+    /// X-Device-Id 请求头（设备级 UUID；留空按 api_base 确定性派生，重启不变）
+    #[serde(default)]
+    pub client_device_id: String,
+    /// X-Device-Model 请求头（真实 Web 客户端发空串）
+    #[serde(default)]
+    pub client_device_model: String,
+    /// X-Client-Timezone-Offset 请求头（真实 Web 客户端 UTC+8 发 28800）
+    #[serde(default = "default_client_timezone_offset")]
+    pub client_timezone_offset: String,
+    /// 登录 payload 的 os 字段（与 UA 身份保持一致：web / android）
+    #[serde(default = "default_client_os")]
+    pub client_os: String,
     /// 定义支持的模型类型列表，每种类型会自动映射为 OpenAI 的 model_id：deepseek-<type>
     #[serde(default = "default_model_types")]
     pub model_types: Vec<String>,
@@ -265,11 +280,11 @@ fn default_wasm_url() -> String {
 }
 
 fn default_user_agent() -> String {
-    "DeepSeek/2.1.1 Android/35".to_string()
+    "DeepSeek/2.5.0 Android/35".to_string()
 }
 
 fn default_client_version() -> String {
-    "2.0.0".to_string()
+    "2.5.0".to_string()
 }
 
 fn default_client_platform() -> String {
@@ -278,6 +293,18 @@ fn default_client_platform() -> String {
 
 fn default_client_locale() -> String {
     "zh_CN".to_string()
+}
+
+fn default_client_bundle_id() -> String {
+    "com.deepseek.chat".to_string()
+}
+
+fn default_client_timezone_offset() -> String {
+    "28800".to_string()
+}
+
+fn default_client_os() -> String {
+    "android".to_string()
 }
 
 /// HTTP 服务器配置（必填）
@@ -448,6 +475,11 @@ impl Default for DsCoreSection {
             client_version: default_client_version(),
             client_platform: default_client_platform(),
             client_locale: default_client_locale(),
+            client_bundle_id: default_client_bundle_id(),
+            client_device_id: String::new(),
+            client_device_model: String::new(),
+            client_timezone_offset: default_client_timezone_offset(),
+            client_os: default_client_os(),
             model_types: default_model_types(),
             max_input_tokens: default_max_input_tokens(),
             max_output_tokens: default_max_output_tokens(),

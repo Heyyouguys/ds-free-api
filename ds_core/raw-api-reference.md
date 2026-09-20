@@ -11,14 +11,24 @@
 
 ### 公共请求头
 
+2026-09 无头浏览器抓包（真实 Web/App 客户端）对齐后的完整头集合。
+登录请求同样携带全部 `x-*` 头（另加 `Referer: https://chat.deepseek.com/sign_in`）：
+
 | Header | 说明 |
 |--------|------|
-| `User-Agent` | 必填，WAF 绕过，值需像真实浏览器 UA |
+| `User-Agent` | 必填，WAF 绕过。默认 `DeepSeek/2.5.0 Android/35`（安卓 App 身份；**桌面 Chrome UA 会被 AWS WAF 以 202 challenge 拦截**，Rust 客户端无法执行 JS challenge） |
 | `Authorization: Bearer <token>` | 鉴权请求必填 |
 | `X-Ds-Pow-Response: <base64>` | 需要 PoW 的请求必填 |
-| `X-Client-Version` | 客户端版本号（当前对应 `2.0.0`） |
-| `X-Client-Platform` | 客户端平台 |
-| `X-Client-Locale` | 客户端语言区域 |
+| `X-Client-Version` | 客户端版本号（默认 `2.5.0`，与真实客户端抓包一致） |
+| `X-Client-Platform` | 客户端平台（默认 `android`） |
+| `X-Client-Locale` | 客户端语言区域（默认 `zh_CN`） |
+| `X-Client-Bundle-Id` | 固定 `com.deepseek.chat` |
+| `X-Device-Id` | 设备级 UUID；配置留空时按 `api_base` 确定性派生（重启不变），亦用于 `check_device` payload |
+| `X-Device-Model` | 设备型号，真实客户端发空串 |
+| `X-Client-Timezone-Offset` | 时区偏移，UTC+8 = `28800` |
+
+登录 payload 的 `os` 字段应与 `X-Client-Platform` 身份一致（`web` / `android`），
+由 `client_os` 配置（默认 `android`）。
 
 ### 响应信封格式
 
@@ -62,9 +72,8 @@
 ## 0. 登录 login
 
 - **URL**: `POST /api/v0/users/login`
-- **请求头**:
-  - `User-Agent`：必填
-  - `Content-Type: application/json`：可选（HTTP 库自动设置时不需要）
+- **请求头**: 完整 `x-*` 客户端头集合（见「公共请求头」）+
+  `Referer: https://chat.deepseek.com/sign_in`；早期版本只发 `User-Agent`
 - **请求体**:
 
 ```json
@@ -73,47 +82,86 @@
   "mobile": "[phone_number]",
   "password": "<password>",
   "area_code": "+86",
-  "device_id": "[任意 base64 或空字符串，但字段不能省略]",
-  "os": "web"
+  "device_id": "[SMSdk 生成的真实设备指纹，89 字符 base64]",
+  "os": "android"
 }
 ```
 
 - `email` / `mobile`：二选一，另一个传 `null`
-- `device_id`：必填字段（省略 → 422），但值可为空或随机
-- `os`：必填（省略 → 422），固定 `"web"`
+- `device_id`：必填字段（省略 → 422）。**值不可伪造**：空串 / 随机 UUID /
+  随机 base64 均返回 `RISK_DEVICE_DETECTED`（biz_code=11），必须是浏览器中
+  数美 SDK（`SMSdk.getDeviceId()`）生成并真实登录过的指纹；可用无头浏览器按需生成
+- `os`：必填（省略 → 422），与 `X-Client-Platform` 身份一致（`web` / `android`，
+  由 `client_os` 配置）
 
-- **响应**:
+- **响应**: 见上方信封；关键字段 `data.biz_data.user.token`（后续所有请求的
+  Bearer token）。`user.chat.is_muted = 1` 表示账号被禁言，`mute_until` 为
+  解封时间戳——`ds_core` 在登录后立即读取该字段做禁言早检，避免再走一次
+  health_check completion
+- **错误**: `biz_code=2` / `biz_msg="PASSWORD_OR_USER_NAME_IS_WRONG"`；
+  `biz_code=11` / `RISK_DEVICE_DETECTED`（device_id 无效）；
+  `biz_code=10` / `USER_IS_BANNED`
+
+---
+
+## 0.1 设备校验 check_device
+
+真实客户端登录成功后立即调用（`ds_core` 在账号初始化时同步该流程）。
+
+- **URL**: `POST /api/v0/users/auth_token/check_device`
+- **请求头**: `Authorization` + 完整 `x-*` 客户端头
+- **请求体**:
+
+```json
+{ "device_id": "<X-Device-Id UUID>", "device_model": "" }
+```
+
+- **响应**: `{"biz_data": {"rotate": null}}`
+- `rotate` 为 `null` = 不轮换；非 null 时服务端要求轮换令牌（形态未观测到，
+  `ds_core` 兼容字符串与 `{"token": "..."}` 两种解析）
+
+---
+
+## 0.2 当前用户 current_user
+
+- **URL**: `GET /api/v0/users/current`
+- **请求头**: `Authorization` + 完整 `x-*` 客户端头
+- **响应**: 与登录响应的 `user` 对象同构（含 `chat.is_muted` / `mute_until`）
+
+---
+
+## 0.3 会话列表 fetch_page
+
+网页端「历史会话」数据源；`ds_core` 通过 `GET /admin/api/sessions` 暴露，
+为 issue #110（会话保存）的基础能力。
+
+- **URL**: `GET /api/v0/chat_session/fetch_page?lte_cursor.pinned=false[&lte_cursor.updated_at=<ts>]`
+- **请求头**: `Authorization` + 完整 `x-*` 客户端头
+- **响应**（节选）:
 
 ```json
 {
   "code": 0,
-  "msg": "",
   "data": {
     "biz_code": 0,
-    "biz_msg": "",
     "biz_data": {
-      "code": 0,
-      "msg": "",
-      "user": {
-        "id": "test",
-        "token": "api-token",
-        "email": "te****t@email.com",
-        "mobile_number": "999******99",
-        "area_code": "+86",
-        "status": 0,
-        "id_profile": { "provider": "WECHAT", "id": "test", "name": "test", "picture": "...", "locale": "zh_CN", "email": null },
-        "id_profiles": [],
-        "chat": { "is_muted": 0, "mute_until": null },
-        "has_legacy_chat_history": false,
-        "need_birthday": false
-      }
+      "chat_sessions": [
+        {
+          "id": "97952d9b-c23a-4d37-8bcf-feb53c88ea83",
+          "title": "命令行命令翻译",
+          "title_type": "SYSTEM",
+          "pinned": false,
+          "model_type": "default",
+          "updated_at": 1778039195.997
+        }
+      ],
+      "has_more": true
     }
   }
 }
 ```
 
-- **关键字段**: `data.biz_data.user.token`（后续所有请求的 Bearer token）
-- **错误**: `biz_code=2` / `biz_msg="PASSWORD_OR_USER_NAME_IS_WRONG"`
+- 分页游标为 `lte_cursor.updated_at`（上一页末尾会话的 `updated_at`）
 
 ---
 

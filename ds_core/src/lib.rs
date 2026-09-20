@@ -8,6 +8,7 @@ mod config;
 
 pub use accounts::PoolError;
 pub use accounts::pool::AccountStatus;
+pub use accounts::{ChatSessionInfo, DsClient, FetchSessionsData, LoginPayload};
 pub use chat::{ChatRequest, ChatResponse, FilePayload, StreamEvent};
 pub use config::{AccountConfig, DsCoreConfig};
 
@@ -77,6 +78,14 @@ impl DsCore {
     #[must_use]
     pub fn account_statuses_detailed(&self) -> Vec<AccountStatus> {
         self.accounts.account_statuses_detailed()
+    }
+
+    /// 拉取账号的会话列表（分页；`updated_at` 为游标，None = 第一页）
+    pub async fn fetch_sessions(
+        &self,
+        updated_at: Option<f64>,
+    ) -> Result<accounts::FetchSessionsData, CoreError> {
+        self.accounts.fetch_sessions(updated_at).await
     }
 
     /// 动态添加账号

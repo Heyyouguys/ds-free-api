@@ -8,8 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **无头浏览器抓包对齐（2026-09-20 实测）**：用 Playwright 对
+  `chat.deepseek.com` 真实登录流程抓包，逐项修正 `ds_core` 的客户端拟态：
+  - 登录请求补齐全部 `x-*` 头：`X-Client-Bundle-Id` / `X-Device-Id` /
+    `X-Device-Model` / `X-Client-Timezone-Offset` / `X-Client-Version` /
+    `X-Client-Platform` / `X-Client-Locale`（此前登录仅发 `User-Agent`）
+  - 新增 3 个原始端点：`POST /users/auth_token/check_device`（令牌轮换，
+    兼容字符串与 `{"token":…}` 两种 rotate 形态）、
+    `GET /users/current`、`GET /chat_session/fetch_page`（分页，游标
+    `lte_cursor.updated_at`）
+  - `GET /admin/api/sessions`：账号会话列表（分页，响应带 `has_more` /
+    `next_cursor`），issue #110 的基础能力
+  - 新配置项（`[ds_core]`）：`client_os` / `client_bundle_id` /
+    `client_device_id` / `client_device_model` / `client_timezone_offset`，
+    管理面板设置页可配
+- **禁言早检**：账号初始化时直接读取登录响应 `user.chat.is_muted` /
+  `mute_until`，命中即止——不再创建 session、不再发送 health_check
+  completion（禁言账号 health_check 必然失败，省掉一次完整请求）
 - **单账号每小时请求配额** `hourly_request_quota`（默认 60，0 = 不限制）
-  - 账号维度的一小时固定窗口计数（`RequestWindow`，纯原子实现，不加锁）
+  - 账号维度的一小时滑动窗口计数（`SlidingWindowRateLimiter`，见 PR #114）
   - 用尽的账号在本窗口内不再被分配，由池中其他账号承接；
     **全部账号都用尽时返回 429**，而不是继续硬打上游
   - 账号状态接口 / 管理面板显示「本小时已用」与「配额已用尽」
@@ -21,6 +38,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **`device_id` 策略更正**：文档从「设备级、可复用于多个账号」改为
   **「每个账号使用独立 device_id」**。该指纹是设备级的，上游用它做关联与画像
+- **客户端拟态默认值升级**：`user_agent` 默认 `DeepSeek/2.1.1 Android/35` →
+  `DeepSeek/2.5.0 Android/35`，`client_version` 默认 `2.0.0` → `2.5.0`
+  （与真实客户端抓包一致，实测可通过 WAF 并正常登录）；登录 payload 的
+  `os` 由硬编码 `"web"` 改为配置项 `client_os`（默认 `android`，与
+  `X-Client-Platform` 身份保持一致）
 
 ### Fixed
 

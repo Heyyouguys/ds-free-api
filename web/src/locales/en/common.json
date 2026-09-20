@@ -133,7 +133,13 @@
       "userAgent": "User-Agent",
       "clientVersion": "Client Version",
       "clientPlatform": "Client Platform",
-      "clientLocale": "Client Locale"
+      "clientLocale": "Client Locale",
+      "clientOs": "Client OS (login payload os field)",
+      "clientBundleId": "Client Bundle Id",
+      "clientDeviceId": "Client Device Id (device UUID)",
+      "clientDeviceIdPlaceholder": "Leave empty to derive from api_base",
+      "clientDeviceModel": "Client Device Model",
+      "clientTimezoneOffset": "Client Timezone Offset"
     },
     "modelsSection": {
       "typeName": "Type Name",

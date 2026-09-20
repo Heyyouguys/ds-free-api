@@ -133,7 +133,13 @@
       "userAgent": "User-Agent",
       "clientVersion": "Client Version",
       "clientPlatform": "Client Platform",
-      "clientLocale": "Client Locale"
+      "clientLocale": "Client Locale",
+      "clientOs": "Client OS（登录 payload 的 os 字段）",
+      "clientBundleId": "Client Bundle Id",
+      "clientDeviceId": "Client Device Id（设备 UUID）",
+      "clientDeviceIdPlaceholder": "留空则按 api_base 自动派生",
+      "clientDeviceModel": "Client Device Model",
+      "clientTimezoneOffset": "Client Timezone Offset"
     },
     "modelsSection": {
       "typeName": "类型名",

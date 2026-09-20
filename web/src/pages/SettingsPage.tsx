@@ -471,6 +471,67 @@ export function SettingsPage() {
                 className="font-mono text-xs"
               />
             </div>
+
+            <div>
+              <label htmlFor="set-ds-os" className="text-xs font-medium text-muted-foreground block mb-1.5">
+                {t('config.deepseek.clientOs')}
+              </label>
+              <Input
+                id="set-ds-os"
+                value={config.ds_core.client_os}
+                onChange={(e) => update(['ds_core', 'client_os'], e.target.value)}
+                className="font-mono text-xs"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="set-ds-bundle" className="text-xs font-medium text-muted-foreground block mb-1.5">
+                {t('config.deepseek.clientBundleId')}
+              </label>
+              <Input
+                id="set-ds-bundle"
+                value={config.ds_core.client_bundle_id}
+                onChange={(e) => update(['ds_core', 'client_bundle_id'], e.target.value)}
+                className="font-mono text-xs"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="set-ds-devid" className="text-xs font-medium text-muted-foreground block mb-1.5">
+                {t('config.deepseek.clientDeviceId')}
+              </label>
+              <Input
+                id="set-ds-devid"
+                value={config.ds_core.client_device_id}
+                onChange={(e) => update(['ds_core', 'client_device_id'], e.target.value)}
+                className="font-mono text-xs"
+                placeholder={t('config.deepseek.clientDeviceIdPlaceholder')}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="set-ds-devmodel" className="text-xs font-medium text-muted-foreground block mb-1.5">
+                {t('config.deepseek.clientDeviceModel')}
+              </label>
+              <Input
+                id="set-ds-devmodel"
+                value={config.ds_core.client_device_model}
+                onChange={(e) => update(['ds_core', 'client_device_model'], e.target.value)}
+                className="font-mono text-xs"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="set-ds-tz" className="text-xs font-medium text-muted-foreground block mb-1.5">
+                {t('config.deepseek.clientTimezoneOffset')}
+              </label>
+              <Input
+                id="set-ds-tz"
+                value={config.ds_core.client_timezone_offset}
+                onChange={(e) => update(['ds_core', 'client_timezone_offset'], e.target.value)}
+                className="font-mono text-xs"
+              />
+            </div>
           </div>
         </CardContent>
       </Card>

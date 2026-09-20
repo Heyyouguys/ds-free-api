@@ -723,6 +723,15 @@ fn warn_on_shared_device_ids(creds: &[AccountConfig]) {
     }
 }
 
+/// 账号展示标识：优先 email，回退 mobile
+fn display_id_of(creds: &AccountConfig) -> &str {
+    if creds.email.is_empty() {
+        &creds.mobile
+    } else {
+        &creds.email
+    }
+}
+
 async fn init_account(
     creds: &AccountConfig,
     client: &DsClient,
@@ -761,26 +770,79 @@ async fn try_init_account(
             Some(creds.area_code.clone())
         },
         device_id: creds.device_id.clone(),
-        os: "web".to_string(),
+        os: client.client_os().to_string(),
     };
 
     let login_data = client.login(&login_payload).await?;
     debug!(
         target: "ds_core::client",
-        "登录响应: code={}, msg={}, user_id={}, email={:?}, mobile={:?}",
+        "登录响应: code={}, msg={}, user_id={}, email={:?}, mobile={:?}, muted={:?}, mute_until={:?}",
         login_data.code,
         login_data.msg,
         login_data.user.id,
         login_data.user.email,
-        login_data.user.mobile_number
+        login_data.user.mobile_number,
+        login_data.user.chat.as_ref().map(|c| c.is_muted),
+        login_data.user.chat.as_ref().and_then(|c| c.mute_until),
     );
-    let token = login_data.user.token;
 
-    let display_id = if creds.email.is_empty() {
-        &creds.mobile
-    } else {
-        &creds.email
-    };
+    // 禁言早检：登录响应即带 chat.is_muted/mute_until，无需等 health_check
+    // 的一次完整 completion 才暴露（禁言账号 health_check 必然失败）。
+    if let Some(chat) = &login_data.user.chat
+        && chat.is_muted != 0
+    {
+        error!(
+            target: "ds_core::accounts",
+            "Account {} is muted until {:?} (detected at login)",
+            display_id_of(creds),
+            chat.mute_until
+        );
+        return Err(PoolError::Validation(format!(
+            "账号异常(muted/limited)，mute_until={:?}",
+            chat.mute_until
+        )));
+    }
+
+    let mut token = login_data.user.token;
+
+    // 设备校验 / 令牌轮换：真实客户端登录成功后立即调用
+    match client.check_device(&token).await {
+        Ok(data) => {
+            if let Some(rotate) = data.rotate.as_ref() {
+                match super::client::extract_rotate_token(rotate) {
+                    Some(new_token) => {
+                        debug!(
+                            target: "ds_core::accounts",
+                            "Account {} token rotated via check_device",
+                            display_id_of(creds)
+                        );
+                        token = new_token;
+                    }
+                    None => debug!(
+                        target: "ds_core::accounts",
+                        "Account {} check_device rotate 形态未知，保持原令牌: {}",
+                        display_id_of(creds),
+                        rotate
+                    ),
+                }
+            } else {
+                debug!(
+                    target: "ds_core::accounts",
+                    "Account {} check_device ok (no rotation)",
+                    display_id_of(creds)
+                );
+            }
+        }
+        // check_device 失败不阻断初始化（真实客户端亦非关键路径）
+        Err(e) => debug!(
+            target: "ds_core::accounts",
+            "Account {} check_device failed (ignored): {}",
+            display_id_of(creds),
+            e
+        ),
+    }
+
+    let display_id = display_id_of(creds);
 
     // 健康检查：创建临时 session → 发送 test completion → 删除 session
     let session_id = client.create_session(&token).await?;

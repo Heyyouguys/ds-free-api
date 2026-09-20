@@ -50,22 +50,38 @@ port = 22217
 # device_id = "Bjyk87PcoVWPPBrs3aHGgXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX=="
 
 # 已验证通过的 User-Agent（Android 客户端模拟）
-# user_agent = "DeepSeek/2.1.1 Android/35"
+# user_agent = "DeepSeek/2.5.0 Android/35"
+#
+# 客户端拟态身份：UA / X-Client-Version / X-Client-Platform / 登录 payload 的 os
+# 应保持一致（web ↔ 安卓）。注意 UA 用桌面 Chrome 会被 AWS WAF 以 202 challenge
+# 拦截（Rust 客户端无法执行 JS challenge），因此默认保持安卓 App 身份。
+# X-Client-Version（应用版本号）
+# client_version = "2.5.0"
+# X-Client-Platform 请求头
+# client_platform = "android"
+# X-Client-Locale 请求头
+# client_locale = "zh_CN"
+#
+# ── 以下为 2026-09 对齐真实客户端抓包结果补充的拟态字段 ──────────────────
+#
+# 登录 payload 的 os 字段（与 client_platform 对应：web / android）
+# client_os = "android"
+# X-Client-Bundle-Id 请求头（真实客户端固定 com.deepseek.chat）
+# client_bundle_id = "com.deepseek.chat"
+# X-Device-Id 请求头 / check_device payload 使用的设备 UUID。
+# 真实客户端每个安装一个持久 UUID；留空则按 api_base 确定性派生（重启不变，
+# 避免每次重启都呈现为「新设备」）。填任意 UUID 字符串可覆盖。
+# client_device_id = ""
+# X-Device-Model 请求头（真实 Web 客户端发空串）
+# client_device_model = ""
+# X-Client-Timezone-Offset 请求头（UTC+8 = 28800）
+# client_timezone_offset = "28800"
 
 # API 基础地址（默认）
 # api_base = "https://chat.deepseek.com/api/v0"
 
 # WASM 文件完整 URL（PoW 计算所需，版本号会变动，建议手动更新）
 # wasm_url = "https://fe-static.deepseek.com/chat/static/sha3_wasm_bg.7b9ca65ddd.wasm"
-
-# X-Client-Version 请求头（用于 expert 模型等功能）
-# client_version = "2.0.0"
-
-# X-Client-Platform 请求头
-# client_platform = "android"
-
-# X-Client-Locale 请求头
-# client_locale = "zh_CN"
 
 # 代理配置（可选，绕过 CloudFront WAF 地区限制）
 # 使用非美国地区的代理出口节点可避免 WAF Challenge

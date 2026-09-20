@@ -185,6 +185,11 @@ export interface DsCoreConfig {
   client_version: string;
   client_platform: string;
   client_locale: string;
+  client_os: string;
+  client_bundle_id: string;
+  client_device_id: string;
+  client_device_model: string;
+  client_timezone_offset: string;
   model_types: string[];
   max_input_tokens: number[];
   max_output_tokens: number[];
@@ -225,10 +230,15 @@ export interface FullConfig {
  */
 const DEFAULTS = {
   apiBase: 'https://chat.deepseek.com/api/v0',
-  userAgent: 'DeepSeek/2.1.1 Android/35',
-  clientVersion: '2.0.0',
+  userAgent: 'DeepSeek/2.5.0 Android/35',
+  clientVersion: '2.5.0',
   clientPlatform: 'android',
   clientLocale: 'zh_CN',
+  clientOs: 'android',
+  clientBundleId: 'com.deepseek.chat',
+  clientDeviceId: '',
+  clientDeviceModel: '',
+  clientTimezoneOffset: '28800',
   maxInputTokens: 1048576,
   maxOutputTokens: 384000,
   maxChars: 2621440,
@@ -275,6 +285,11 @@ export function normalizeConfig(raw: any): FullConfig {
       client_version: core.client_version ?? DEFAULTS.clientVersion,
       client_platform: core.client_platform ?? DEFAULTS.clientPlatform,
       client_locale: core.client_locale ?? DEFAULTS.clientLocale,
+      client_os: core.client_os ?? DEFAULTS.clientOs,
+      client_bundle_id: core.client_bundle_id ?? DEFAULTS.clientBundleId,
+      client_device_id: core.client_device_id ?? DEFAULTS.clientDeviceId,
+      client_device_model: core.client_device_model ?? DEFAULTS.clientDeviceModel,
+      client_timezone_offset: core.client_timezone_offset ?? DEFAULTS.clientTimezoneOffset,
       model_types: modelTypes,
       max_input_tokens: align(core.max_input_tokens, len, DEFAULTS.maxInputTokens),
       max_output_tokens: align(core.max_output_tokens, len, DEFAULTS.maxOutputTokens),
